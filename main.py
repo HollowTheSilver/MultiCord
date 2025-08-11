@@ -3,10 +3,10 @@ Discord Bot Template
 =================================
 
 A comprehensive, production-ready Discord bot template with integrated Loguru logging,
-configuration management, graceful shutdown, and extensible architecture.
+configuration management, graceful shutdown, enhanced embeds, and professional error handling.
 
 Author: HollowTheSilver
-Version: 1.0.0
+Version: 1.1.0
 """
 
 # // ========================================( Modules )======================================== // #
@@ -32,6 +32,7 @@ from dotenv import load_dotenv
 from config.settings import BotConfig
 from utils.loguruConfig import configure_logger
 from utils.exceptions import BotError, ConfigurationError, ShutdownError
+from utils.error_handler import setup_enhanced_error_handling
 
 if TYPE_CHECKING:
     from loguru import Logger
@@ -43,7 +44,7 @@ if TYPE_CHECKING:
 class Application(commands.Bot):
     """
     Professional Discord bot with comprehensive logging, configuration management,
-    and graceful shutdown capabilities.
+    enhanced embeds, and graceful shutdown capabilities.
     """
 
     def __init__(self, config: Optional[BotConfig] = None) -> None:
@@ -89,6 +90,9 @@ class Application(commands.Bot):
         self._activity_index: int = 0
         self._shutdown_requested: bool = False  # Simple flag for shutdown
 
+        # Enhanced error handling (will be set up in setup_hook)
+        self.error_handler = None
+
         # Optional integrations (to be implemented as needed)
         self.database: Optional[Any] = None
         self.cache: Optional[Any] = None
@@ -114,6 +118,10 @@ class Application(commands.Bot):
         """
         try:
             self.logger.info("Starting bot initialization...")
+
+            # Set up enhanced error handling first
+            self.error_handler = setup_enhanced_error_handling(self)
+            self.logger.info("Enhanced error handling configured")
 
             # Load extensions/cogs
             await self._load_extensions()
@@ -367,33 +375,12 @@ class Application(commands.Bot):
         })
 
     async def on_command_error(self, ctx: commands.Context, error: Exception) -> None:
-        """Global command error handler."""
-        if isinstance(error, commands.CommandNotFound):
-            return  # Ignore unknown commands
-
-        elif isinstance(error, commands.MissingPermissions):
-            await ctx.send("❌ You don't have permission to use this command.")
-
-        elif isinstance(error, commands.BotMissingPermissions):
-            missing = ", ".join(error.missing_permissions)
-            await ctx.send(f"❌ I'm missing permissions: `{missing}`")
-
-        elif isinstance(error, commands.CommandOnCooldown):
-            await ctx.send(f"❌ Command on cooldown. Try again in {error.retry_after:.1f}s")
-
-        elif isinstance(error, commands.MissingRequiredArgument):
-            await ctx.send(f"❌ Missing required argument: `{error.param.name}`")
-
-        else:
-            # Log unexpected errors
-            self.logger.error(f"Unhandled command error: {error}", extra={
-                "command": ctx.command.qualified_name if ctx.command else "unknown",
-                "user": str(ctx.author),
-                "guild": ctx.guild.name if ctx.guild else "DM",
-                "error_type": type(error).__name__
-            })
-
-            await ctx.send("❌ An unexpected error occurred. Please try again later.")
+        """
+        Global command error handler - now handled by enhanced error handler.
+        This method is overridden by the enhanced error handler setup.
+        """
+        # This will be overridden by setup_enhanced_error_handling
+        pass
 
     async def on_error(self, event: str, *args: Any, **kwargs: Any) -> None:
         """Global error handler for non-command events."""

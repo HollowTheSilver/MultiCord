@@ -22,7 +22,7 @@ class BotConfig:
 
     # Bot identification
     BOT_NAME: str = field(default_factory=lambda: os.getenv("BOT_NAME", "ProfessionalBot"))
-    BOT_VERSION: str = field(default_factory=lambda: os.getenv("BOT_VERSION", "1.0.0"))
+    BOT_VERSION: str = field(default_factory=lambda: os.getenv("BOT_VERSION", "1.1.0"))
     BOT_DESCRIPTION: str = field(default_factory=lambda: os.getenv("BOT_DESCRIPTION", "A professional Discord bot"))
 
     # Command settings

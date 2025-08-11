@@ -1,9 +1,13 @@
 """
-Sample Cog - Basic Commands
-===========================
+Basic Commands Cog (V2)
+================================
 
-A sample cog demonstrating best practices for command structure, error handling,
-and logging integration with the professional bot template.
+Upgraded version of the basic commands cog featuring:
+- Beautiful, consistent embeds
+- Command cooldowns
+- Input validation
+- Enhanced error handling
+- Better user experience
 """
 
 import asyncio
@@ -17,16 +21,25 @@ from discord import app_commands
 
 from utils.loguruConfig import configure_logger
 from utils.exceptions import ValidationError, CommandError
+from utils.embeds import (
+    create_success_embed,
+    create_info_embed,
+    create_warning_embed,
+    create_latency_embed,
+    create_bot_info_embed,
+    EmbedBuilder,
+    EmbedType
+)
 
 
 class BasicCommands(commands.Cog):
     """
-    Basic commands cog with essential bot functionality.
+    Enhanced basic commands cog with beautiful embeds and improved UX.
     """
 
     def __init__(self, bot: commands.Bot) -> None:
         """
-        Initialize the BasicCommands cog.
+        Initialize the Enhanced Basic Commands cog.
 
         Args:
             bot: The bot instance
@@ -36,25 +49,25 @@ class BasicCommands(commands.Cog):
             log_dir=bot.config.LOG_DIR,
             level=bot.config.LOG_LEVEL,
             format_extra=True,
-            discord_compat=True  # Use Discord-compatible formatting
+            discord_compat=True
         )
         self._start_time = time.time()
 
-        self.logger.info("BasicCommands cog initialized")
+        self.logger.info("Enhanced Basic Commands cog initialized")
 
     # // ========================================( Cog Events )======================================== // #
 
     async def cog_load(self) -> None:
         """Called when the cog is loaded."""
-        self.logger.info("BasicCommands cog loaded successfully")
+        self.logger.info("Enhanced Basic Commands cog loaded successfully")
 
     async def cog_unload(self) -> None:
         """Called when the cog is unloaded."""
-        self.logger.info("BasicCommands cog unloaded")
+        self.logger.info("Enhanced Basic Commands cog unloaded")
 
     async def cog_command_error(self, ctx: commands.Context, error: commands.CommandError) -> None:
         """Handle errors that occur in this cog's commands."""
-        self.logger.error(f"Command error in BasicCommands: {error}", extra={
+        self.logger.error(f"Command error in Enhanced Basic Commands: {error}", extra={
             "command": ctx.command.qualified_name if ctx.command else "unknown",
             "user": str(ctx.author),
             "guild": ctx.guild.name if ctx.guild else "DM"
@@ -89,66 +102,74 @@ class BasicCommands(commands.Cog):
             "architecture": platform.machine()
         }
 
-    # // ========================================( Basic Commands )======================================== // #
+    def _validate_user_input(self, value: str, max_length: int = 100) -> str:
+        """
+        Validate user input to prevent abuse.
+
+        Args:
+            value: Input value to validate
+            max_length: Maximum allowed length
+
+        Returns:
+            Validated input
+
+        Raises:
+            ValidationError: If input is invalid
+        """
+        if not value or not value.strip():
+            raise ValidationError(
+                field_name="input",
+                value=value,
+                expected_format="non-empty string"
+            )
+
+        if len(value) > max_length:
+            raise ValidationError(
+                field_name="input",
+                value=f"{len(value)} characters",
+                expected_format=f"maximum {max_length} characters"
+            )
+
+        return value.strip()
+
+    # // ========================================( Enhanced Commands )======================================== // #
 
     @commands.hybrid_command(
         name="ping",
         description="Check the bot's latency and responsiveness"
     )
+    @commands.cooldown(1, 5, commands.BucketType.user)  # 1 use per 5 seconds per user
     async def ping(self, ctx: commands.Context) -> None:
         """
-        Display bot latency information.
+        Display bot latency information with beautiful embed.
 
         Args:
             ctx: The command context
         """
         start_time = time.perf_counter()
 
-        # Create initial embed
-        embed = discord.Embed(
-            title="🏓 Pong!",
-            description="Measuring latency...",
-            color=discord.Color.blue()
-        )
+        # Create initial loading embed
+        loading_embed = EmbedBuilder(
+            EmbedType.LOADING,
+            "Measuring Latency",
+            "Calculating response times..."
+        ).build()
 
-        message = await ctx.send(embed=embed)
+        message = await ctx.send(embed=loading_embed)
         end_time = time.perf_counter()
 
         # Calculate latencies
         api_latency = round(self.bot.latency * 1000, 2)
         message_latency = round((end_time - start_time) * 1000, 2)
 
-        # Update embed with results
-        embed.description = None
-        embed.add_field(
-            name="🌐 API Latency",
-            value=f"`{api_latency}ms`",
-            inline=True
-        )
-        embed.add_field(
-            name="💬 Message Latency",
-            value=f"`{message_latency}ms`",
-            inline=True
+        # Create final latency embed
+        latency_embed = create_latency_embed(
+            api_latency=api_latency,
+            message_latency=message_latency,
+            user=ctx.author
         )
 
-        # Add status indicator
-        if api_latency < 100:
-            embed.color = discord.Color.green()
-            status = "🟢 Excellent"
-        elif api_latency < 200:
-            embed.color = discord.Color.yellow()
-            status = "🟡 Good"
-        else:
-            embed.color = discord.Color.red()
-            status = "🔴 Poor"
-
-        embed.add_field(
-            name="📊 Status",
-            value=status,
-            inline=True
-        )
-
-        await message.edit(embed=embed)
+        await message.edit(embed=latency_embed)
 
         self.logger.info("Ping command executed", extra={
             "api_latency": f"{api_latency}ms",
@@ -158,81 +179,42 @@ class BasicCommands(commands.Cog):
 
     @commands.hybrid_command(
         name="info",
-        description="Display bot information and statistics"
+        description="Display comprehensive bot information and statistics"
     )
+    @commands.cooldown(2, 30, commands.BucketType.guild)  # 2 uses per 30 seconds per guild
     async def info(self, ctx: commands.Context) -> None:
         """
-        Display comprehensive bot information.
+        Display comprehensive bot information with enhanced styling.
 
         Args:
             ctx: The command context
         """
         # Calculate uptime
         uptime_seconds = time.time() - self._start_time
-        uptime_str = self._format_uptime(uptime_seconds)
 
-        # Get bot statistics
-        stats = self.bot.get_stats()
+        # Create comprehensive bot info embed
+        info_embed = create_bot_info_embed(
+            bot=self.bot,
+            uptime_seconds=uptime_seconds,
+            user=ctx.author
+        )
+
+        # Add additional technical details
         system_info = self._get_system_info()
-
-        # Create embed
-        embed = discord.Embed(
-            title=f"🤖 {self.bot.config.BOT_NAME}",
-            description=self.bot.config.BOT_DESCRIPTION,
-            color=discord.Color.blue()
-        )
-
-        # Bot information
-        embed.add_field(
-            name="📊 Statistics",
-            value=(
-                f"**Guilds:** {stats['guilds']:,}\n"
-                f"**Users:** {stats['users']:,}\n"
-                f"**Commands:** {stats['commands']:,}\n"
-                f"**Cogs:** {stats['cogs']:,}"
-            ),
+        info_embed.add_field(
+            name="🖥️ System Details",
+            value=f"**Platform:** {system_info['platform']}\n"
+            f"**Architecture:** {system_info['architecture']}\n"
+            f"**Discord.py:** {system_info['discord_py_version']}",
             inline=True
         )
 
-        # Technical information
-        embed.add_field(
-            name="⚙️ Technical",
-            value=(
-                f"**Version:** {self.bot.config.BOT_VERSION}\n"
-                f"**Uptime:** {uptime_str}\n"
-                f"**Latency:** {round(self.bot.latency * 1000, 2)}ms\n"
-                f"**Python:** {system_info['python_version']}"
-            ),
-            inline=True
-        )
-
-        # System information
-        embed.add_field(
-            name="🖥️ System",
-            value=(
-                f"**Platform:** {system_info['platform']}\n"
-                f"**Architecture:** {system_info['architecture']}\n"
-                f"**Discord.py:** {system_info['discord_py_version']}"
-            ),
-            inline=True
-        )
-
-        # Add bot avatar if available
-        if self.bot.user and self.bot.user.avatar:
-            embed.set_thumbnail(url=self.bot.user.avatar.url)
-
-        # Add footer with additional info
-        embed.set_footer(
-            text=f"Requested by {ctx.author.display_name}",
-            icon_url=ctx.author.display_avatar.url
-        )
-
-        await ctx.send(embed=embed)
+        await ctx.send(embed=info_embed)
 
         self.logger.info("Info command executed", extra={
-            "uptime": uptime_str,
-            "guilds": stats['guilds'],
-            "users": stats['users'],
+            "uptime": self._format_uptime(uptime_seconds),
+            "guilds": len(self.bot.guilds),
+            "users": sum(guild.member_count or 0 for guild in self.bot.guilds),
             "user": str(ctx.author)
         })
 
@@ -240,9 +222,10 @@ class BasicCommands(commands.Cog):
         name="uptime",
         description="Display how long the bot has been running"
     )
+    @commands.cooldown(1, 10, commands.BucketType.user)
     async def uptime(self, ctx: commands.Context) -> None:
         """
-        Display bot uptime information.
+        Display bot uptime information with enhanced formatting.
 
         Args:
             ctx: The command context
@@ -250,10 +233,10 @@ class BasicCommands(commands.Cog):
         uptime_seconds = time.time() - self._start_time
         uptime_str = self._format_uptime(uptime_seconds)
 
-        embed = discord.Embed(
-            title="⏰ Bot Uptime",
-            description=f"I've been online for **{uptime_str}**",
-            color=discord.Color.green()
+        embed = EmbedBuilder(
+            EmbedType.SUCCESS,
+            "⏰ Bot Uptime",
+            f"I've been online for **{uptime_str}**"
         )
 
         embed.add_field(
@@ -262,60 +245,116 @@ class BasicCommands(commands.Cog):
             inline=False
         )
 
-        await ctx.send(embed=embed)
+        embed.add_field(
+            name="📊 Status",
+            value="🟢 Online and Operational",
+            inline=True
+        )
+
+        embed.set_footer(
+            f"Requested by {ctx.author.display_name}",
+            icon_url=ctx.author.display_avatar.url
+        )
+
+        await ctx.send(embed=embed.build())
 
     # // ========================================( Utility Commands )======================================== // #
 
     @commands.hybrid_command(
         name="avatar",
-        description="Display a user's avatar"
+        description="Display a user's avatar in high quality"
     )
-    @app_commands.describe(user="The user whose avatar to display")
+    @app_commands.describe(
+        user="The user whose avatar to display",
+        size="Avatar size (64, 128, 256, 512, 1024, 2048, 4096)"
+    )
+    @commands.cooldown(3, 15, commands.BucketType.user)
     async def avatar(
         self,
         ctx: commands.Context,
-        user: Optional[Union[discord.Member, discord.User]] = None
+        user: Optional[Union[discord.Member, discord.User]] = None,
+        size: Optional[int] = None
     ) -> None:
         """
-        Display a user's avatar.
+        Display a user's avatar with download options.
 
         Args:
             ctx: The command context
-            user: The user whose avatar to display (defaults to command author)
+            user: The user whose avatar to display
+            size: Requested avatar size
         """
         target_user = user or ctx.author
 
-        embed = discord.Embed(
-            title=f"🖼️ {target_user.display_name}'s Avatar",
-            color=discord.Color.blue()
+        # Validate size parameter
+        valid_sizes = [64, 128, 256, 512, 1024, 2048, 4096]
+        if size and size not in valid_sizes:
+            raise ValidationError(
+                field_name="size",
+                value=size,
+                expected_format=f"one of: {', '.join(map(str, valid_sizes))}"
+            )
+
+        # Get avatar URL with requested size
+        avatar_url = target_user.display_avatar.url
+        if size:
+            avatar_url = target_user.display_avatar.with_size(size).url
+
+        embed = EmbedBuilder(
+            EmbedType.INFO,
+            f"🖼️ {target_user.display_name}'s Avatar"
         )
 
         # Set the avatar image
-        avatar_url = target_user.display_avatar.url
-        embed.set_image(url=avatar_url)
+        embed.set_image(avatar_url)
 
-        # Add download link
+        # Add user information
         embed.add_field(
-            name="🔗 Links",
-            value=f"[Download]({avatar_url})",
+            name="👤 User",
+            value=f"{target_user.mention}\n`{target_user.id}`",
+            inline=True
+        )
+
+        if size:
+            embed.add_field(
+                name="📐 Size",
+                value=f"{size}x{size} pixels",
+                inline=True
+            )
+
+        # Add download links for different sizes
+        download_links = []
+        for link_size in [256, 512, 1024]:
+            size_url = target_user.display_avatar.with_size(link_size).url
+            download_links.append(f"[{link_size}px]({size_url})")
+
+        embed.add_field(
+            name="🔗 Download Links",
+            value=" • ".join(download_links),
             inline=False
         )
 
-        await ctx.send(embed=embed)
+        embed.set_footer(
+            f"Requested by {ctx.author.display_name}",
+            icon_url=ctx.author.display_avatar.url
+        )
+
+        await ctx.send(embed=embed.build())
 
         self.logger.info("Avatar command executed", extra={
             "target_user": str(target_user),
+            "requested_size": size,
             "requested_by": str(ctx.author)
         })
 
     @commands.hybrid_command(
         name="serverinfo",
-        description="Display information about the current server"
+        description="Display comprehensive information about the current server"
     )
     @commands.guild_only()
+    @commands.cooldown(1, 30, commands.BucketType.guild)
     async def serverinfo(self, ctx: commands.Context) -> None:
         """
-        Display server information.
+        Display comprehensive server information.
 
         Args:
             ctx: The command context
@@ -325,16 +364,19 @@ class BasicCommands(commands.Cog):
 
         guild = ctx.guild
 
-        # Create embed
-        embed = discord.Embed(
-            title=f"📋 {guild.name}",
-            color=discord.Color.blue()
+        # Create comprehensive server info embed
+        embed = EmbedBuilder(
+            EmbedType.INFO,
+            f"📋 {guild.name}",
+            f"Server information and statistics"
         )
 
-        # Basic information
+        # Basic server information
         embed.add_field(
             name="👥 Members",
-            value=f"**Total:** {guild.member_count:,}\n**Online:** {sum(1 for m in guild.members if m.status != discord.Status.offline):,}",
+            value=f"**Total:** {guild.member_count:,}\n"
+            f"**Online:** {sum(1 for m in guild.members if m.status != discord.Status.offline):,}\n"
+            f"**Bots:** {sum(1 for m in guild.members if m.bot):,}",
             inline=True
         )
 
@@ -342,37 +384,150 @@ class BasicCommands(commands.Cog):
         text_channels = len(guild.text_channels)
         voice_channels = len(guild.voice_channels)
         categories = len(guild.categories)
+        stage_channels = len(guild.stage_channels)
 
         embed.add_field(
             name="📺 Channels",
-            value=f"**Text:** {text_channels}\n**Voice:** {voice_channels}\n**Categories:** {categories}",
+            value=f"**Text:** {text_channels}\n"
+            f"**Voice:** {voice_channels}\n"
+            f"**Stage:** {stage_channels}\n"
+            f"**Categories:** {categories}",
             inline=True
         )
 
-        # Server details
+        # Server features and details
         embed.add_field(
-            name="🔧 Details",
-            value=(
-                f"**Owner:** {guild.owner.mention if guild.owner else 'Unknown'}\n"
-                f"**Created:** <t:{int(guild.created_at.timestamp())}:D>\n"
-                f"**Verification:** {guild.verification_level.name.title()}"
-            ),
+            name="🔧 Server Details",
+            value=f"**Owner:** {guild.owner.mention if guild.owner else 'Unknown'}\n"
+            f"**Created:** <t:{int(guild.created_at.timestamp())}:D>\n"
+            f"**Verification:** {guild.verification_level.name.title()}\n"
+            f"**Boost Level:** {guild.premium_tier}",
             inline=True
         )
+
+        # Emoji and sticker information
+        emoji_count = len(guild.emojis)
+        sticker_count = len(guild.stickers)
+
+        embed.add_field(
+            name="😄 Emojis & Stickers",
+            value=f"**Emojis:** {emoji_count}/{guild.emoji_limit}\n"
+            f"**Stickers:** {sticker_count}/{guild.sticker_limit}",
+            inline=True
+        )
+
+        # Role information
+        role_count = len(guild.roles) - 1  # Exclude @everyone
+        embed.add_field(
+            name="🎭 Roles",
+            value=f"**Total:** {role_count}\n"
+            f"**Highest:** {guild.roles[-1].mention if len(guild.roles) > 1 else 'None'}",
+            inline=True
+        )
+
+        # Boost information
+        if guild.premium_subscription_count:
+            embed.add_field(
+                name="💎 Nitro Boosts",
+                value=f"**Boosts:** {guild.premium_subscription_count}\n"
+                f"**Boosters:** {len(guild.premium_subscribers)}",
+                inline=True
+            )
 
         # Add server icon if available
         if guild.icon:
-            embed.set_thumbnail(url=guild.icon.url)
+            embed.set_thumbnail(guild.icon.url)
 
-        # Add footer
-        embed.set_footer(text=f"Server ID: {guild.id}")
+        # Add banner if available
+        if guild.banner:
+            embed.set_image(guild.banner.url)
 
-        await ctx.send(embed=embed)
+        # Server features
+        if guild.features:
+            feature_list = []
+            feature_names = {
+                'ANIMATED_ICON': 'Animated Icon',
+                'BANNER': 'Server Banner',
+                'COMMERCE': 'Commerce',
+                'COMMUNITY': 'Community Server',
+                'DISCOVERABLE': 'Server Discovery',
+                'FEATURABLE': 'Featurable',
+                'INVITE_SPLASH': 'Invite Splash',
+                'MEMBER_VERIFICATION_GATE_ENABLED': 'Membership Screening',
+                'NEWS': 'News Channels',
+                'PARTNERED': 'Partnered',
+                'PREVIEW_ENABLED': 'Preview Enabled',
+                'VANITY_URL': 'Custom Invite Link',
+                'VERIFIED': 'Verified',
+                'VIP_REGIONS': 'VIP Voice Regions',
+                'WELCOME_SCREEN_ENABLED': 'Welcome Screen'
+            }
 
-        self.logger.info("Serverinfo command executed", extra={
+            for feature in guild.features:
+                feature_name = feature_names.get(feature, feature.replace('_', ' ').title())
+                feature_list.append(feature_name)
+
+            if feature_list:
+                embed.add_field(
+                    name="✨ Special Features",
+                    value="\n".join([f"• {feature}" for feature in feature_list[:10]]),  # Limit to prevent overflow
+                    inline=False
+                )
+
+        embed.set_footer(
+            f"Server ID: {guild.id} • Requested by {ctx.author.display_name}",
+            icon_url=ctx.author.display_avatar.url
+        )
+
+        await ctx.send(embed=embed.build())
+
+        self.logger.info("Server info command executed", extra={
             "guild": guild.name,
             "guild_id": guild.id,
             "member_count": guild.member_count,
+            "user": str(ctx.author)
+        })
+
+    # // ========================================( Fun Commands )======================================== // #
+
+    @commands.hybrid_command(
+        name="echo",
+        description="Repeat a message with style"
+    )
+    @app_commands.describe(message="The message to echo")
+    @commands.cooldown(2, 10, commands.BucketType.user)
+    async def echo(self, ctx: commands.Context, *, message: str) -> None:
+        """
+        Echo a message with validation and beautiful formatting.
+
+        Args:
+            ctx: The command context
+            message: The message to echo
+        """
+        # Validate input
+        validated_message = self._validate_user_input(message, max_length=500)
+
+        embed = EmbedBuilder(
+            EmbedType.INFO,
+            "📢 Echo",
+            validated_message
+        )
+
+        embed.set_footer(
+            f"Echoed for {ctx.author.display_name}",
+            icon_url=ctx.author.display_avatar.url
+        )
+
+        # Try to delete the original message if possible
+        try:
+            await ctx.message.delete()
+        except discord.Forbidden:
+            pass  # Bot doesn't have permission to delete messages
+
+        await ctx.send(embed=embed.build())
+
+        self.logger.info("Echo command executed", extra={
+            "message_length": len(validated_message),
             "user": str(ctx.author)
         })
 
@@ -380,6 +535,7 @@ class BasicCommands(commands.Cog):
 
     @commands.command(name="shutdown")
     @commands.is_owner()
+    @commands.cooldown(1, 60, commands.BucketType.default)  # Prevent accidental spam
     async def shutdown(self, ctx: commands.Context) -> None:
         """
         Gracefully shutdown the bot (owner only).
@@ -387,20 +543,34 @@ class BasicCommands(commands.Cog):
         Args:
             ctx: The command context
         """
-        embed = discord.Embed(
-            title="🔄 Shutting Down",
-            description="Shutting down bot...",
-            color=discord.Color.red()
+        embed = EmbedBuilder(
+            EmbedType.WARNING,
+            "🔄 Shutting Down",
+            "Initiating graceful shutdown sequence..."
         )
 
-        await ctx.send(embed=embed)
+        embed.add_field(
+            "⚠️ Warning",
+            "The bot will be offline until manually restarted.",
+            inline=False
+        )
+
+        embed.set_footer(
+            f"Initiated by {ctx.author.display_name}",
+            icon_url=ctx.author.display_avatar.url
+        )
+
+        await ctx.send(embed=embed.build())
 
         self.logger.warning("Shutdown command executed", extra={
             "user": str(ctx.author),
             "guild": ctx.guild.name if ctx.guild else "DM"
         })
 
-        # Request shutdown using simple flag approach
+        # Wait a moment for the message to send
+        await asyncio.sleep(2)
+
+        # Request shutdown using the bot's shutdown system
         self.bot.request_shutdown()
 
     @commands.hybrid_command(
@@ -409,48 +579,85 @@ class BasicCommands(commands.Cog):
     )
     @commands.is_owner()
     @app_commands.describe(cog="The name of the cog to reload")
+    @commands.cooldown(3, 30, commands.BucketType.default)
     async def reload_cog(self, ctx: commands.Context, cog: str) -> None:
         """
-        Reload a specific cog.
+        Reload a specific cog with enhanced feedback.
 
         Args:
             ctx: The command context
             cog: The name of the cog to reload
         """
-        try:
-            # Unload and reload the cog
-            await self.bot.unload_extension(f"cogs.{cog}")
-            await self.bot.load_extension(f"cogs.{cog}")
+        # Validate cog name
+        validated_cog = self._validate_user_input(cog, max_length=50)
 
-            embed = discord.Embed(
+        try:
+            # Show loading message
+            loading_embed = EmbedBuilder(
+                EmbedType.LOADING,
+                "🔄 Reloading Cog",
+                f"Reloading `{validated_cog}`..."
+            ).build()
+
+            message = await ctx.send(embed=loading_embed)
+
+            # Unload and reload the cog
+            await self.bot.unload_extension(f"cogs.{validated_cog}")
+            await self.bot.reload_extension(f"cogs.{validated_cog}")
+
+            # Success message
+            success_embed = create_success_embed(
                 title="✅ Cog Reloaded",
-                description=f"Successfully reloaded `{cog}`",
-                color=discord.Color.green()
+                description=f"Successfully reloaded `{validated_cog}`",
+                user=ctx.author
             )
 
-            self.logger.info(f"Cog reloaded: {cog}", extra={
+            await message.edit(embed=success_embed)
+
+            self.logger.info(f"Cog reloaded: {validated_cog}", extra={
                 "user": str(ctx.author),
-                "cog": cog
+                "cog": validated_cog
             })
 
         except Exception as e:
-            embed = discord.Embed(
-                title="❌ Reload Failed",
-                description=f"Failed to reload `{cog}`: {str(e)}",
-                color=discord.Color.red()
+            # Error message with details
+            error_embed = EmbedBuilder(
+                EmbedType.ERROR,
+                "❌ Reload Failed",
+                f"Failed to reload `{validated_cog}`"
             )
 
-            self.logger.error(f"Failed to reload cog: {cog}", extra={
+            error_embed.add_field(
+                name="Error Details",
+                value=f"```\n{str(e)[:500]}...\n```" if len(str(e)) > 500 else f"```\n{str(e)}\n```",
+                inline=False
+            )
+
+            error_embed.add_field(
+                name="💡 Suggestion",
+                value="Check the bot logs for more detailed error information.",
+                inline=False
+            )
+
+            error_embed.set_footer(
+                f"Requested by {ctx.author.display_name}",
+                icon_url=ctx.author.display_avatar.url
+            )
+
+            try:
+                await message.edit(embed=error_embed.build())
+            except:
+                await ctx.send(embed=error_embed.build())
+
+            self.logger.error(f"Failed to reload cog: {validated_cog}", extra={
                 "error": str(e),
                 "user": str(ctx.author)
             })
 
-        await ctx.send(embed=embed)
-
 
 async def setup(bot: commands.Bot) -> None:
     """
-    Setup function to add the cog to the bot.
+    Setup function to add the enhanced cog to the bot.
 
     Args:
         bot: The bot instance
