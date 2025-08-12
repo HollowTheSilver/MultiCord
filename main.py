@@ -3,10 +3,11 @@ Discord Bot Template
 =================================
 
 A comprehensive, production-ready Discord bot template with integrated Loguru logging,
-configuration management, graceful shutdown, enhanced embeds, and professional error handling.
+configuration management, graceful shutdown, enhanced embeds, professional error handling,
+and enterprise-grade permission system.
 
 Author: HollowTheSilver
-Version: 1.1.0
+Version: 1.2.0 (Enhanced Permission System)
 """
 
 # // ========================================( Modules )======================================== // #
@@ -31,7 +32,7 @@ from dotenv import load_dotenv
 
 from config.settings import BotConfig
 from utils.loguruConfig import configure_logger
-from utils.permissions import setup_permission_system, PermissionLevel
+from utils.permissions import setup_enhanced_permission_system, PermissionLevel  # Updated import
 from utils.exceptions import BotError, ConfigurationError, ShutdownError
 from utils.error_handler import setup_enhanced_error_handling
 
@@ -45,7 +46,7 @@ if TYPE_CHECKING:
 class Application(commands.Bot):
     """
     Discord bot with comprehensive logging, configuration management,
-    enhanced embeds, and graceful shutdown capabilities.
+    enhanced embeds, graceful shutdown capabilities, and enterprise permission system.
     """
 
     def __init__(self, config: Optional[BotConfig] = None) -> None:
@@ -93,7 +94,7 @@ class Application(commands.Bot):
 
         # Error handling (will be set up in setup_hook)
         self.error_handler = None
-        # Permissions manager (will be set up in setup_hook)
+        # Enhanced permissions manager (will be set up in setup_hook)
         self.permission_manager = None
 
         # Optional integrations (to be implemented as needed)
@@ -126,9 +127,9 @@ class Application(commands.Bot):
             self.error_handler = setup_enhanced_error_handling(self)
             self.logger.info("Error handler configured")
 
-            # Set up permission system
-            self.permission_manager = setup_permission_system(self)
-            self.logger.info("Permission system initialized")
+            # Set up enhanced permission system
+            self.permission_manager = setup_enhanced_permission_system(self)
+            self.logger.info("Enhanced permission system initialized")
 
             # Load extensions/cogs
             await self._load_extensions()
@@ -322,7 +323,16 @@ class Application(commands.Bot):
             if latency > 1000:  # High latency warning
                 self.logger.warning(f"High Discord API latency: {latency}ms")
 
-            self.logger.debug("Health check completed", extra={"latency": f"{latency}ms"})
+            # Check permission system performance
+            if self.permission_manager:
+                cache_stats = self.permission_manager.get_cache_stats()
+                if cache_stats['hit_rate'] < 50:  # Low hit rate warning
+                    self.logger.warning(f"Low permission cache hit rate: {cache_stats['hit_rate']}%")
+
+            self.logger.debug("Health check completed", extra={
+                "latency": f"{latency}ms",
+                "permission_cache_hit_rate": f"{cache_stats.get('hit_rate', 0)}%" if self.permission_manager else "N/A"
+            })
 
         except Exception as e:
             self.logger.error(f"Health check failed: {e}")
@@ -362,19 +372,44 @@ class Application(commands.Bot):
             "owner": str(guild.owner)
         })
 
+        # Auto-configure permissions for new guild
+        if self.permission_manager:
+            try:
+                confident_mappings, uncertain_roles = await self.permission_manager.auto_configure_guild(guild)
+                self.logger.info(f"Auto-configured {len(confident_mappings)} roles for new guild {guild.name}, "
+                               f"{len(uncertain_roles)} roles need manual review")
+            except Exception as e:
+                self.logger.error(f"Failed to auto-configure permissions for new guild {guild.name}: {e}")
+
     async def on_guild_remove(self, guild: discord.Guild) -> None:
         """Called when the bot is removed from a guild."""
         self.logger.info(f"Removed from guild: {guild.name}", extra={
             "guild_id": guild.id
         })
 
+        # Clean up guild permission configuration
+        if self.permission_manager and guild.id in self.permission_manager.guild_configs:
+            del self.permission_manager.guild_configs[guild.id]
+            self.permission_manager.clear_cache()
+            self.logger.info(f"Cleaned up permission configuration for removed guild: {guild.name}")
+
     async def on_command_completion(self, ctx: commands.Context) -> None:
         """Called when a command is successfully executed."""
         command_name = ctx.command.qualified_name if ctx.command else "unknown"
 
+        # Get user's permission level for logging
+        user_level = "unknown"
+        if self.permission_manager:
+            try:
+                level = self.permission_manager.get_user_permission_level(ctx.author, ctx.guild)
+                user_level = level.name
+            except Exception:
+                pass
+
         self.logger.info(f"Command executed: {command_name}", extra={
             "user": str(ctx.author),
             "user_id": ctx.author.id,
+            "user_permission_level": user_level,
             "guild": ctx.guild.name if ctx.guild else "DM",
             "guild_id": ctx.guild.id if ctx.guild else None,
             "channel": str(ctx.channel),
@@ -427,7 +462,7 @@ class Application(commands.Bot):
 
     def get_stats(self) -> Dict[str, Any]:
         """Get comprehensive bot statistics."""
-        return {
+        stats = {
             "guilds": len(self.guilds),
             "users": sum(guild.member_count or 0 for guild in self.guilds),
             "commands": len(self.commands),
@@ -435,6 +470,17 @@ class Application(commands.Bot):
             "latency": round(self.latency * 1000, 2),
             "startup_complete": self._startup_complete
         }
+
+        # Add permission system stats if available
+        if self.permission_manager:
+            permission_stats = self.permission_manager.get_cache_stats()
+            stats.update({
+                "permission_checks": permission_stats.get("total_checks", 0),
+                "permission_cache_hit_rate": permission_stats.get("hit_rate", 0),
+                "configured_guilds": permission_stats.get("guild_configs", 0)
+            })
+
+        return stats
 
 
 # // ========================================( Main Function )======================================== // #

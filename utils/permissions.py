@@ -2,12 +2,16 @@
 Permission System
 ===========================
 
-Comprehensive permission management system for Discord bots with role hierarchy,
-channel restrictions, guild overrides, caching, and audit logging.
+Permission management system with:
+- Auto-detection of Discord roles
+- Guild-specific permission node overrides
+- Management commands for configuration
+- Two-layer architecture (Universal levels + Guild customization)
 """
 
 import asyncio
 import time
+import re
 from datetime import datetime, timezone
 from typing import (
     Dict, List, Optional, Set, Union, Callable, Any, Tuple
@@ -20,26 +24,27 @@ import discord
 from discord.ext import commands
 
 from utils.exceptions import PermissionError, ValidationError
-from utils.embeds import create_error_embed, create_warning_embed
+from utils.embeds import create_error_embed, create_warning_embed, create_success_embed, create_info_embed
 
 
-# // ========================================( Permission Models )======================================== // #
+# // ========================================( Enhanced Permission Models )======================================== // #
 
 
 class PermissionLevel(IntEnum):
     """
-    Permission levels with hierarchy support (higher number = more permissions).
+    Enhanced universal permission levels with proper hierarchy.
+    These levels work across all Discord servers regardless of role names.
     """
-    BANNED = -1  # Explicitly banned from using commands
-    EVERYONE = 0  # Default permission level
-    TRUSTED = 10  # Trusted users (verified members, etc.)
-    VIP = 20  # VIP/Premium users
-    HELPER = 30  # Community helpers
-    MODERATOR = 50  # Server moderators
-    ADMIN = 80  # Server administrators
-    OWNER = 100  # Server owner
-    BOT_ADMIN = 150  # Bot administrators (cross-server)
-    BOT_OWNER = 200  # Bot owner (highest level)
+    BANNED = -1        # Explicitly banned from using commands
+    EVERYONE = 0       # Default permission level (no special roles needed)
+    MEMBER = 10        # Verified/trusted members, VIPs, supporters, etc.
+    MODERATOR = 50     # Basic moderation permissions (warn, mute, kick)
+    LEAD_MOD = 65      # Senior/Lead moderators (advanced moderation)
+    ADMIN = 80         # Basic administration permissions
+    LEAD_ADMIN = 90    # Senior/Lead administrators (advanced admin)
+    OWNER = 100        # Full server permissions
+    BOT_ADMIN = 150    # Bot administrators (cross-server)
+    BOT_OWNER = 200    # Bot owner (highest level)
 
 
 class PermissionScope(Enum):
@@ -55,7 +60,7 @@ class PermissionScope(Enum):
 class PermissionNode:
     """A permission node defining access to a command or feature."""
     name: str  # Permission node name (e.g., "moderation.kick")
-    level: PermissionLevel  # Required permission level
+    default_level: PermissionLevel  # Default required permission level
     description: str  # Human-readable description
     scope_restrictions: Set[int] = field(default_factory=set)  # Channel/category IDs where allowed
     role_restrictions: Set[int] = field(default_factory=set)  # Role IDs that can use this
@@ -79,29 +84,213 @@ class PermissionOverride:
 
 
 @dataclass
+class GuildPermissionConfig:
+    """Per-guild permission configuration."""
+    guild_id: int
+    role_mappings: Dict[int, PermissionLevel] = field(default_factory=dict)  # role_id -> level
+    node_overrides: Dict[str, PermissionLevel] = field(default_factory=dict)  # node -> required_level
+    auto_configured: bool = False  # Whether auto-detection has been run
+    configured_by: Optional[int] = None  # User who configured this
+    configured_at: Optional[datetime] = None  # When it was configured
+
+    def get_required_level(self, node: str, default_nodes: Dict[str, PermissionNode]) -> PermissionLevel:
+        """Get required level for a node, checking guild override first."""
+        if node in self.node_overrides:
+            return self.node_overrides[node]
+
+        if node in default_nodes:
+            return default_nodes[node].default_level
+
+        return PermissionLevel.OWNER  # Safe default for unknown nodes
+
+
+@dataclass
 class PermissionAuditEntry:
     """Audit log entry for permission changes."""
-    action: str  # "grant", "deny", "remove"
-    target_type: str  # "user" or "role"
-    target_id: int  # User or role ID
-    permission_node: str  # Permission node affected
+    action: str  # "grant", "deny", "remove", "set_role", "set_command", "auto_configure"
+    target_type: str  # "user", "role", "command", "guild"
+    target_id: Union[int, str]  # User/role ID or command name
+    permission_data: str  # What changed
     actor_id: int  # Who made the change
     reason: Optional[str] = None  # Reason for the change
     guild_id: Optional[int] = None  # Guild where change occurred
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
-# // ========================================( Permission Manager )======================================== // #
+# // ========================================( Role Detection System )======================================== // #
 
 
-class PermissionManager:
+class RoleDetectionSystem:
+    """Automatically detects and suggests role mappings based on Discord permissions and names."""
+
+    def __init__(self, logger=None):
+        self.logger = logger
+
+        # Common role name patterns for different permission levels
+        self.role_patterns = {
+            PermissionLevel.MEMBER: [
+                r'\bvip\b', r'\bmember\b', r'\bverified\b', r'\btrusted\b',
+                r'\bsupporter\b', r'\bregular\b', r'\bactive\b', r'\bdonator\b'
+            ],
+            PermissionLevel.MODERATOR: [
+                r'\bmod\b', r'\bmoderator\b', r'\bhelper\b', r'\btrial.*mod\b',
+                r'\bjunior.*mod\b', r'\btemp.*mod\b', r'\btrainee\b'
+            ],
+            PermissionLevel.LEAD_MOD: [
+                r'\bsenior.*mod\b', r'\blead.*mod\b', r'\bhead.*mod\b',
+                r'\bsuper.*mod\b', r'\bchief.*mod\b', r'\bmaster.*mod\b'
+            ],
+            PermissionLevel.ADMIN: [
+                r'\badmin\b', r'\badministrator\b', r'\bmanager\b', r'\bstaff\b',
+                r'\bleader\b', r'\bexecutive\b', r'\bdirector\b'
+            ],
+            PermissionLevel.LEAD_ADMIN: [
+                r'\bsenior.*admin\b', r'\blead.*admin\b', r'\bhead.*admin\b',
+                r'\bchief.*admin\b', r'\bsuper.*admin\b', r'\bco.*owner\b'
+            ]
+        }
+
+    def analyze_guild_roles(self, guild: discord.Guild) -> Tuple[Dict[int, PermissionLevel], List[discord.Role]]:
+        """
+        Analyze guild roles and suggest permission mappings.
+
+        Returns:
+            Tuple of (confident_mappings, uncertain_roles)
+        """
+        confident_mappings = {}
+        uncertain_roles = []
+
+        for role in guild.roles:
+            if role.name == "@everyone":
+                continue
+
+            # Check for administrator permission (always ADMIN level)
+            if role.permissions.administrator:
+                # But check if it should be LEAD_ADMIN based on name
+                if self._matches_pattern(role.name, PermissionLevel.LEAD_ADMIN):
+                    confident_mappings[role.id] = PermissionLevel.LEAD_ADMIN
+                else:
+                    confident_mappings[role.id] = PermissionLevel.ADMIN
+                continue
+
+            # Check for ownership (guild owner gets special treatment elsewhere)
+            if role.position == len(guild.roles) - 1:  # Highest role
+                if self._matches_pattern(role.name, PermissionLevel.OWNER, ['owner', 'founder', 'creator']):
+                    confident_mappings[role.id] = PermissionLevel.OWNER
+                    continue
+
+            # Analyze by Discord permissions
+            detected_level = self._analyze_role_permissions(role)
+
+            if detected_level:
+                # Double-check with name patterns
+                name_level = self._analyze_role_name(role.name)
+
+                if name_level and name_level != detected_level:
+                    # Conflict between permissions and name - mark as uncertain
+                    uncertain_roles.append(role)
+                    if self.logger:
+                        self.logger.debug(f"Role permission/name conflict: {role.name} - "
+                                        f"permissions suggest {detected_level.name}, "
+                                        f"name suggests {name_level.name}")
+                else:
+                    confident_mappings[role.id] = detected_level
+            else:
+                # No clear permissions detected, try name-based detection
+                name_level = self._analyze_role_name(role.name)
+                if name_level:
+                    # Less confident about name-only detection
+                    if name_level in [PermissionLevel.MODERATOR, PermissionLevel.LEAD_MOD]:
+                        uncertain_roles.append(role)
+                    else:
+                        confident_mappings[role.id] = name_level
+                else:
+                    # No clear indication - add to uncertain if it might be important
+                    if not role.is_bot_managed() and not role.is_integration():
+                        uncertain_roles.append(role)
+
+        return confident_mappings, uncertain_roles
+
+    def _analyze_role_permissions(self, role: discord.Role) -> Optional[PermissionLevel]:
+        """Analyze Discord permissions to determine appropriate bot permission level."""
+        perms = role.permissions
+
+        # Check for moderation permissions
+        basic_mod_perms = [
+            perms.kick_members,
+            perms.ban_members,
+            perms.moderate_members,  # Timeout permission
+            perms.manage_messages
+        ]
+
+        advanced_mod_perms = [
+            perms.manage_channels,
+            perms.manage_roles,
+            perms.manage_guild
+        ]
+
+        # Count how many permissions they have
+        basic_mod_count = sum(basic_mod_perms)
+        advanced_mod_count = sum(advanced_mod_perms)
+
+        if advanced_mod_count >= 2:
+            return PermissionLevel.ADMIN  # Can manage server structure
+        elif basic_mod_count >= 2:
+            return PermissionLevel.MODERATOR  # Can moderate users
+        elif any(basic_mod_perms):
+            return PermissionLevel.MODERATOR  # Any moderation ability
+        elif self._has_trusted_permissions(perms):
+            return PermissionLevel.MEMBER  # Trusted permissions
+
+        return None  # No clear permission level
+
+    def _has_trusted_permissions(self, perms: discord.Permissions) -> bool:
+        """Check if role has permissions that indicate trusted status."""
+        trusted_indicators = [
+            perms.send_messages_in_threads,
+            perms.create_public_threads,
+            perms.create_private_threads,
+            perms.external_emojis,
+            perms.external_stickers,
+            perms.attach_files,
+            perms.embed_links
+        ]
+        # If they have most trusted permissions, probably a trusted member role
+        return sum(trusted_indicators) >= 4
+
+    def _analyze_role_name(self, role_name: str) -> Optional[PermissionLevel]:
+        """Analyze role name to suggest permission level."""
+        name_lower = role_name.lower()
+
+        # Check each level's patterns
+        for level, patterns in self.role_patterns.items():
+            if self._matches_pattern(name_lower, level, patterns):
+                return level
+
+        return None
+
+    def _matches_pattern(self, name: str, level: PermissionLevel, custom_patterns: List[str] = None) -> bool:
+        """Check if role name matches patterns for a permission level."""
+        patterns = custom_patterns or self.role_patterns.get(level, [])
+
+        for pattern in patterns:
+            if re.search(pattern, name, re.IGNORECASE):
+                return True
+
+        return False
+
+
+# // ========================================( Enhanced Permission Manager )======================================== // #
+
+
+class EnhancedPermissionManager:
     """
-    Core permission management system with caching and audit logging.
+    Enhanced permission management system with auto-detection and guild customization.
     """
 
     def __init__(self, bot: commands.Bot) -> None:
         """
-        Initialize the permission manager.
+        Initialize the enhanced permission manager.
 
         Args:
             bot: The bot instance
@@ -112,6 +301,9 @@ class PermissionManager:
         # Permission nodes registry
         self.nodes: Dict[str, PermissionNode] = {}
 
+        # Guild configurations
+        self.guild_configs: Dict[int, GuildPermissionConfig] = {}
+
         # Caching for performance
         self.user_permission_cache: Dict[Tuple[int, int], Tuple[PermissionLevel, float]] = {}
         self.permission_check_cache: Dict[str, Tuple[bool, float]] = {}
@@ -121,8 +313,8 @@ class PermissionManager:
         self.overrides: List[PermissionOverride] = []
         self.audit_log: List[PermissionAuditEntry] = []
 
-        # Built-in permission levels by role
-        self.role_permission_map: Dict[int, PermissionLevel] = {}
+        # Role detection system
+        self.role_detector = RoleDetectionSystem(self.logger)
 
         # Performance tracking
         self.check_count = 0
@@ -131,32 +323,44 @@ class PermissionManager:
         self._register_default_nodes()
 
     def _register_default_nodes(self) -> None:
-        """Register default permission nodes."""
+        """Register default permission nodes with enhanced hierarchy."""
         default_nodes = [
-            # Basic commands
+            # Basic commands - anyone can use
             PermissionNode("basic.ping", PermissionLevel.EVERYONE, "Use ping command"),
             PermissionNode("basic.info", PermissionLevel.EVERYONE, "View bot information"),
             PermissionNode("basic.help", PermissionLevel.EVERYONE, "View help system"),
             PermissionNode("basic.avatar", PermissionLevel.EVERYONE, "View user avatars"),
+            PermissionNode("basic.uptime", PermissionLevel.EVERYONE, "View bot uptime"),
 
-            # Utility commands
-            PermissionNode("utility.serverinfo", PermissionLevel.TRUSTED, "View server information"),
-            PermissionNode("utility.userinfo", PermissionLevel.TRUSTED, "View user information"),
+            # Utility commands - trusted members
+            PermissionNode("utility.userinfo", PermissionLevel.MEMBER, "View user information"),
+            PermissionNode("utility.serverinfo", PermissionLevel.MEMBER, "View server information"),
+            PermissionNode("utility.roleinfo", PermissionLevel.MEMBER, "View role information"),
 
-            # Moderation commands
+            # Basic moderation commands
+            PermissionNode("moderation.warn", PermissionLevel.MODERATOR, "Warn members"),
+            PermissionNode("moderation.mute", PermissionLevel.MODERATOR, "Mute members"),
             PermissionNode("moderation.kick", PermissionLevel.MODERATOR, "Kick members"),
             PermissionNode("moderation.ban", PermissionLevel.MODERATOR, "Ban members"),
-            PermissionNode("moderation.mute", PermissionLevel.MODERATOR, "Mute members"),
-            PermissionNode("moderation.warn", PermissionLevel.HELPER, "Warn members"),
 
-            # Administration
+            # Advanced moderation commands
+            PermissionNode("moderation.mass_ban", PermissionLevel.LEAD_MOD, "Mass ban members"),
+            PermissionNode("moderation.lockdown", PermissionLevel.LEAD_MOD, "Lock down channels"),
+            PermissionNode("moderation.purge", PermissionLevel.LEAD_MOD, "Purge messages"),
+
+            # Basic administration
             PermissionNode("admin.settings", PermissionLevel.ADMIN, "Modify bot settings"),
-            PermissionNode("admin.permissions", PermissionLevel.ADMIN, "Manage permissions"),
-            PermissionNode("admin.reload", PermissionLevel.BOT_ADMIN, "Reload bot components"),
+            PermissionNode("admin.permissions", PermissionLevel.ADMIN, "View permissions"),
+            PermissionNode("admin.reload", PermissionLevel.ADMIN, "Reload bot components"),
 
-            # Bot management
-            PermissionNode("bot.shutdown", PermissionLevel.BOT_OWNER, "Shutdown the bot"),
-            PermissionNode("bot.eval", PermissionLevel.BOT_OWNER, "Execute code"),
+            # Advanced administration
+            PermissionNode("admin.server_config", PermissionLevel.LEAD_ADMIN, "Configure server settings"),
+            PermissionNode("admin.audit_logs", PermissionLevel.LEAD_ADMIN, "View audit logs"),
+            PermissionNode("admin.permission_management", PermissionLevel.LEAD_ADMIN, "Manage permission system"),
+
+            # Owner commands
+            PermissionNode("owner.shutdown", PermissionLevel.OWNER, "Shutdown the bot"),
+            PermissionNode("owner.eval", PermissionLevel.BOT_OWNER, "Execute code"),
         ]
 
         for node in default_nodes:
@@ -172,6 +376,127 @@ class PermissionManager:
         self.nodes[node.name] = node
         if self.logger:
             self.logger.debug(f"Registered permission node: {node.name}")
+
+    def get_guild_config(self, guild_id: int) -> GuildPermissionConfig:
+        """
+        Get or create guild permission configuration.
+
+        Args:
+            guild_id: The guild ID
+
+        Returns:
+            Guild permission configuration
+        """
+        if guild_id not in self.guild_configs:
+            self.guild_configs[guild_id] = GuildPermissionConfig(guild_id=guild_id)
+
+        return self.guild_configs[guild_id]
+
+    async def auto_configure_guild(self, guild: discord.Guild, actor_id: Optional[int] = None) -> Tuple[Dict[int, PermissionLevel], List[discord.Role]]:
+        """
+        Auto-configure permission mappings for a guild.
+
+        Args:
+            guild: The guild to configure
+            actor_id: User ID who initiated the configuration
+
+        Returns:
+            Tuple of (confident_mappings, uncertain_roles)
+        """
+        if self.logger:
+            self.logger.info(f"Auto-configuring permissions for guild: {guild.name}")
+
+        # Analyze roles
+        confident_mappings, uncertain_roles = self.role_detector.analyze_guild_roles(guild)
+
+        # Get guild config
+        config = self.get_guild_config(guild.id)
+
+        # Apply confident mappings
+        config.role_mappings.update(confident_mappings)
+        config.auto_configured = True
+        config.configured_by = actor_id
+        config.configured_at = datetime.now(timezone.utc)
+
+        # Log the action
+        audit_entry = PermissionAuditEntry(
+            action="auto_configure",
+            target_type="guild",
+            target_id=guild.id,
+            permission_data=f"Configured {len(confident_mappings)} roles",
+            actor_id=actor_id or 0,
+            guild_id=guild.id
+        )
+        self.audit_log.append(audit_entry)
+
+        # Clear cache
+        self.clear_cache()
+
+        if self.logger:
+            self.logger.info(f"Auto-configured {len(confident_mappings)} roles for {guild.name}, "
+                           f"{len(uncertain_roles)} roles need manual review")
+
+        return confident_mappings, uncertain_roles
+
+    def set_role_permission_level(self, guild_id: int, role_id: int, level: PermissionLevel, actor_id: Optional[int] = None) -> None:
+        """
+        Set a permission level for a specific role.
+
+        Args:
+            guild_id: The guild ID
+            role_id: The role ID
+            level: The permission level to assign
+            actor_id: User ID who made the change
+        """
+        config = self.get_guild_config(guild_id)
+        old_level = config.role_mappings.get(role_id)
+
+        config.role_mappings[role_id] = level
+        self.clear_cache()
+
+        # Log the action
+        audit_entry = PermissionAuditEntry(
+            action="set_role",
+            target_type="role",
+            target_id=role_id,
+            permission_data=f"Changed from {old_level.name if old_level else 'None'} to {level.name}",
+            actor_id=actor_id or 0,
+            guild_id=guild_id
+        )
+        self.audit_log.append(audit_entry)
+
+        if self.logger:
+            self.logger.info(f"Set role {role_id} to {level.name} in guild {guild_id}")
+
+    def set_command_requirement(self, guild_id: int, command_node: str, level: PermissionLevel, actor_id: Optional[int] = None) -> None:
+        """
+        Set the required permission level for a command in a specific guild.
+
+        Args:
+            guild_id: The guild ID
+            command_node: The permission node name
+            level: The required permission level
+            actor_id: User ID who made the change
+        """
+        config = self.get_guild_config(guild_id)
+        old_level = config.node_overrides.get(command_node)
+
+        config.node_overrides[command_node] = level
+        self.clear_cache()
+
+        # Log the action
+        audit_entry = PermissionAuditEntry(
+            action="set_command",
+            target_type="command",
+            target_id=command_node,
+            permission_data=f"Changed from {old_level.name if old_level else 'default'} to {level.name}",
+            actor_id=actor_id or 0,
+            guild_id=guild_id
+        )
+        self.audit_log.append(audit_entry)
+
+        if self.logger:
+            self.logger.info(f"Set command {command_node} to require {level.name} in guild {guild_id}")
 
     def get_user_permission_level(
             self,
@@ -211,8 +536,9 @@ class PermissionManager:
     ) -> PermissionLevel:
         """Calculate the actual permission level for a user."""
         # Bot owner always has the highest permissions
-        if user.id in self.bot.config.OWNER_IDS:
-            return PermissionLevel.BOT_OWNER
+        if hasattr(self.bot, 'config') and hasattr(self.bot.config, 'OWNER_IDS'):
+            if user.id in self.bot.config.OWNER_IDS:
+                return PermissionLevel.BOT_OWNER
 
         # Check if user is banned from bot
         if self._is_user_banned(user.id, guild):
@@ -228,28 +554,58 @@ class PermissionManager:
 
         # Check Discord permissions for admin
         if user.guild_permissions.administrator:
+            # Check if they should be LEAD_ADMIN based on role mappings
+            config = self.get_guild_config(guild.id)
+            for role in user.roles:
+                if role.id in config.role_mappings:
+                    role_level = config.role_mappings[role.id]
+                    if role_level == PermissionLevel.LEAD_ADMIN:
+                        return PermissionLevel.LEAD_ADMIN
             return PermissionLevel.ADMIN
 
         # Check specific role mappings
+        config = self.get_guild_config(guild.id)
         user_level = PermissionLevel.EVERYONE
+
         for role in user.roles:
-            if role.id in self.role_permission_map:
-                role_level = self.role_permission_map[role.id]
+            if role.id in config.role_mappings:
+                role_level = config.role_mappings[role.id]
                 if role_level > user_level:
                     user_level = role_level
 
-        # Check Discord permissions for moderator
-        if user_level < PermissionLevel.MODERATOR:
-            mod_perms = [
-                user.guild_permissions.kick_members,
-                user.guild_permissions.ban_members,
-                user.guild_permissions.manage_messages,
-                user.guild_permissions.manage_roles
-            ]
-            if any(mod_perms):
-                user_level = PermissionLevel.MODERATOR
+        # If no role mappings found, fall back to Discord permission analysis
+        if user_level == PermissionLevel.EVERYONE:
+            user_level = self._analyze_user_discord_permissions(user)
 
         return user_level
+
+    def _analyze_user_discord_permissions(self, user: discord.Member) -> PermissionLevel:
+        """Analyze user's Discord permissions to determine bot permission level."""
+        perms = user.guild_permissions
+
+        # Check for moderation permissions
+        mod_perms = [
+            perms.kick_members,
+            perms.ban_members,
+            perms.manage_messages,
+            perms.moderate_members
+        ]
+
+        if any(mod_perms):
+            return PermissionLevel.MODERATOR
+
+        # Check for trusted permissions
+        trusted_perms = [
+            perms.external_emojis,
+            perms.attach_files,
+            perms.embed_links,
+            perms.create_public_threads
+        ]
+
+        if sum(trusted_perms) >= 2:
+            return PermissionLevel.MEMBER
+
+        return PermissionLevel.EVERYONE
 
     def _is_user_banned(self, user_id: int, guild: Optional[discord.Guild]) -> bool:
         """Check if a user is banned from using the bot."""
@@ -326,8 +682,6 @@ class PermissionManager:
                 self.logger.warning(f"Unknown permission node: {permission_node}")
             return False
 
-        node = self.nodes[permission_node]
-
         # Get user's permission level
         user_level = self.get_user_permission_level(user, guild)
 
@@ -340,19 +694,28 @@ class PermissionManager:
         if override_result is not None:
             return override_result
 
+        # Get required level (with guild overrides)
+        if guild:
+            config = self.get_guild_config(guild.id)
+            required_level = config.get_required_level(permission_node, self.nodes)
+        else:
+            required_level = self.nodes[permission_node].default_level
+
         # Check base permission level
-        if user_level < node.level:
+        if user_level < required_level:
             return False
 
-        # Check scope restrictions
+        # Check scope and role restrictions (existing logic)
+        node = self.nodes[permission_node]
         if not self._check_scope_restrictions(node, channel, guild):
             return False
 
-        # Check role restrictions
         if not self._check_role_restrictions(node, user, guild):
             return False
 
         return True
+
+    # ... (keeping existing methods for overrides, scope restrictions, etc.)
 
     def _check_overrides(
             self,
@@ -457,180 +820,6 @@ class PermissionManager:
         user_role_ids = {role.id for role in user.roles}
         return bool(node.role_restrictions.intersection(user_role_ids))
 
-    def set_role_permission_level(self, role_id: int, level: PermissionLevel) -> None:
-        """
-        Set a permission level for a specific role.
-
-        Args:
-            role_id: The role ID
-            level: The permission level to assign
-        """
-        self.role_permission_map[role_id] = level
-        self.clear_cache()
-
-    def set_role_permission_by_name(
-            self,
-            guild: discord.Guild,
-            role_name: str,
-            level: PermissionLevel
-    ) -> bool:
-        """
-        Set a permission level for a role by name.
-
-        Args:
-            guild: The guild to search for the role
-            role_name: The role name (case-insensitive)
-            level: The permission level to assign
-
-        Returns:
-            True if role was found and set, False otherwise
-        """
-        role = discord.utils.get(guild.roles, name=role_name)
-        if role:
-            self.set_role_permission_level(role.id, level)
-            return True
-        return False
-
-    async def setup_guild_role_permissions(self, guild: discord.Guild) -> None:
-        """
-        Set up role permissions for a guild based on configuration.
-
-        Args:
-            guild: The guild to configure
-        """
-        if not hasattr(self.bot, 'config'):
-            return
-
-        # Parse default role permissions from config
-        role_mappings = self.bot.config.parse_default_role_permissions()
-
-        configured_count = 0
-        for role_name, level_name in role_mappings.items():
-            try:
-                # Convert level name to enum
-                level = PermissionLevel[level_name]
-
-                # Find role by name (case-insensitive)
-                role = discord.utils.get(guild.roles, name=role_name)
-                if not role:
-                    # Try case-insensitive search
-                    role = discord.utils.find(
-                        lambda r: r.name.lower() == role_name.lower(),
-                        guild.roles
-                    )
-
-                if role:
-                    self.set_role_permission_level(role.id, level)
-                    configured_count += 1
-                    if self.logger:
-                        self.logger.info(f"Configured role permission: {role.name} -> {level.name}")
-                else:
-                    if self.logger:
-                        self.logger.warning(f"Role not found in guild {guild.name}: {role_name}")
-
-            except (KeyError, ValueError) as e:
-                if self.logger:
-                    self.logger.warning(f"Invalid permission level '{level_name}' for role '{role_name}': {e}")
-
-        if self.logger and configured_count > 0:
-            self.logger.info(f"Configured {configured_count} role permissions for guild: {guild.name}")
-
-    def get_role_permission_level(self, role_id: int) -> Optional[PermissionLevel]:
-        """
-        Get the permission level for a specific role.
-
-        Args:
-            role_id: The role ID
-
-        Returns:
-            The permission level if set, None otherwise
-        """
-        return self.role_permission_map.get(role_id)
-
-    def list_role_permissions(self, guild: Optional[discord.Guild] = None) -> Dict[str, PermissionLevel]:
-        """
-        List all configured role permissions.
-
-        Args:
-            guild: Optional guild to resolve role names
-
-        Returns:
-            Dictionary mapping role info to permission levels
-        """
-        result = {}
-
-        for role_id, level in self.role_permission_map.items():
-            if guild:
-                role = guild.get_role(role_id)
-                role_key = f"{role.name} ({role_id})" if role else f"Unknown Role ({role_id})"
-            else:
-                role_key = str(role_id)
-
-            result[role_key] = level
-
-        return result
-
-    def add_override(self, override: PermissionOverride) -> None:
-        """
-        Add a permission override.
-
-        Args:
-            override: The permission override to add
-        """
-        self.overrides.append(override)
-        self.clear_cache()
-
-        # Log the action
-        audit_entry = PermissionAuditEntry(
-            action="grant" if override.granted else "deny",
-            target_type=override.target_type,
-            target_id=override.target_id,
-            permission_node=override.permission_node,
-            actor_id=override.granted_by or 0,
-            reason=override.reason,
-            guild_id=override.scope_id if override.scope_type == PermissionScope.GUILD else None
-        )
-        self.audit_log.append(audit_entry)
-
-    def remove_override(
-            self,
-            target_type: str,
-            target_id: int,
-            permission_node: str,
-            scope_type: PermissionScope,
-            scope_id: Optional[int] = None,
-            actor_id: Optional[int] = None
-    ) -> bool:
-        """
-        Remove a permission override.
-
-        Returns:
-            True if an override was removed, False otherwise
-        """
-        for i, override in enumerate(self.overrides):
-            if (override.target_type == target_type and
-                    override.target_id == target_id and
-                    override.permission_node == permission_node and
-                    override.scope_type == scope_type and
-                    override.scope_id == scope_id):
-                removed_override = self.overrides.pop(i)
-                self.clear_cache()
-
-                # Log the action
-                audit_entry = PermissionAuditEntry(
-                    action="remove",
-                    target_type=target_type,
-                    target_id=target_id,
-                    permission_node=permission_node,
-                    actor_id=actor_id or 0,
-                    guild_id=scope_id if scope_type == PermissionScope.GUILD else None
-                )
-                self.audit_log.append(audit_entry)
-
-                return True
-
-        return False
-
     def clear_cache(self) -> None:
         """Clear all permission caches."""
         self.user_permission_cache.clear()
@@ -644,11 +833,74 @@ class PermissionManager:
             "cache_hits": self.cache_hits,
             "hit_rate": round(hit_rate, 2),
             "cached_users": len(self.user_permission_cache),
-            "cached_checks": len(self.permission_check_cache)
+            "cached_checks": len(self.permission_check_cache),
+            "guild_configs": len(self.guild_configs)
         }
 
+    def get_guild_role_mappings(self, guild: discord.Guild) -> Dict[str, PermissionLevel]:
+        """
+        Get role permission mappings for a guild with role names.
 
-# // ========================================( Permission Decorators )======================================== // #
+        Args:
+            guild: The guild to get mappings for
+
+        Returns:
+            Dictionary mapping role info to permission levels
+        """
+        config = self.get_guild_config(guild.id)
+        result = {}
+
+        for role_id, level in config.role_mappings.items():
+            role = guild.get_role(role_id)
+            if role:
+                result[f"{role.name} ({role_id})"] = level
+            else:
+                result[f"Unknown Role ({role_id})"] = level
+
+        return result
+
+    def get_guild_command_overrides(self, guild_id: int) -> Dict[str, PermissionLevel]:
+        """
+        Get command permission overrides for a guild.
+
+        Args:
+            guild_id: The guild ID
+
+        Returns:
+            Dictionary mapping command nodes to required levels
+        """
+        config = self.get_guild_config(guild_id)
+        return config.node_overrides.copy()
+
+    def reset_guild_config(self, guild_id: int, actor_id: Optional[int] = None) -> None:
+        """
+        Reset guild configuration to defaults.
+
+        Args:
+            guild_id: The guild ID
+            actor_id: User ID who initiated the reset
+        """
+        if guild_id in self.guild_configs:
+            del self.guild_configs[guild_id]
+
+        self.clear_cache()
+
+        # Log the action
+        audit_entry = PermissionAuditEntry(
+            action="reset_config",
+            target_type="guild",
+            target_id=guild_id,
+            permission_data="Reset to defaults",
+            actor_id=actor_id or 0,
+            guild_id=guild_id
+        )
+        self.audit_log.append(audit_entry)
+
+        if self.logger:
+            self.logger.info(f"Reset permission configuration for guild {guild_id}")
+
+
+# // ========================================( Updated Decorators )======================================== // #
 
 
 def require_permission(
@@ -676,7 +928,7 @@ def require_permission(
             if not hasattr(ctx.bot, 'permission_manager'):
                 raise PermissionError("Permission system not initialized")
 
-            permission_manager: PermissionManager = ctx.bot.permission_manager
+            permission_manager: EnhancedPermissionManager = ctx.bot.permission_manager
 
             # Check permission
             has_permission = await permission_manager.check_permission(
@@ -693,7 +945,13 @@ def require_permission(
                 else:
                     node = permission_manager.nodes.get(permission_node)
                     if node:
-                        description = f"You need **{node.level.name.title()}** level permissions to use this command."
+                        # Check for guild override
+                        if ctx.guild:
+                            config = permission_manager.get_guild_config(ctx.guild.id)
+                            required_level = config.get_required_level(permission_node, permission_manager.nodes)
+                        else:
+                            required_level = node.default_level
+                        description = f"You need **{required_level.name.title()}** level permissions to use this command."
                     else:
                         description = "You don't have permission to use this command."
 
@@ -712,7 +970,11 @@ def require_permission(
                 )
 
                 if permission_node in permission_manager.nodes:
-                    required_level = permission_manager.nodes[permission_node].level
+                    if ctx.guild:
+                        config = permission_manager.get_guild_config(ctx.guild.id)
+                        required_level = config.get_required_level(permission_node, permission_manager.nodes)
+                    else:
+                        required_level = permission_manager.nodes[permission_node].default_level
                     embed.add_field(
                         name="Required Level",
                         value=required_level.name.title(),
@@ -755,7 +1017,7 @@ def require_level(level: PermissionLevel, *, error_message: Optional[str] = None
             if not hasattr(ctx.bot, 'permission_manager'):
                 raise PermissionError("Permission system not initialized")
 
-            permission_manager: PermissionManager = ctx.bot.permission_manager
+            permission_manager: EnhancedPermissionManager = ctx.bot.permission_manager
 
             # Get user's permission level
             user_level = permission_manager.get_user_permission_level(ctx.author, ctx.guild)
@@ -799,6 +1061,7 @@ def require_level(level: PermissionLevel, *, error_message: Optional[str] = None
     return decorator
 
 
+# Keep existing channel_only decorator unchanged
 def channel_only(*channel_ids: int) -> Callable:
     """
     Decorator to restrict a command to specific channels.
@@ -848,24 +1111,24 @@ def channel_only(*channel_ids: int) -> Callable:
 # // ========================================( Integration Function )======================================== // #
 
 
-def setup_permission_system(bot: commands.Bot) -> PermissionManager:
+def setup_enhanced_permission_system(bot: commands.Bot) -> EnhancedPermissionManager:
     """
-    Set up the permission system for the bot.
+    Set up the enhanced permission system for the bot.
 
     Args:
         bot: The bot instance
 
     Returns:
-        The permission manager instance
+        The enhanced permission manager instance
     """
-    permission_manager = PermissionManager(bot)
+    permission_manager = EnhancedPermissionManager(bot)
     bot.permission_manager = permission_manager
 
     # Set up event handlers for automatic role configuration
     @bot.event
     async def on_guild_join(guild: discord.Guild):
         """Configure role permissions when joining a new guild."""
-        await permission_manager.setup_guild_role_permissions(guild)
+        await permission_manager.auto_configure_guild(guild)
 
     @bot.event
     async def on_ready():
@@ -874,11 +1137,14 @@ def setup_permission_system(bot: commands.Bot) -> PermissionManager:
             return  # Avoid duplicate setup on reconnect
 
         for guild in bot.guilds:
-            await permission_manager.setup_guild_role_permissions(guild)
+            # Only auto-configure if not already configured
+            config = permission_manager.get_guild_config(guild.id)
+            if not config.auto_configured:
+                await permission_manager.auto_configure_guild(guild)
 
         bot._permission_setup_complete = True
 
     if hasattr(bot, 'logger'):
-        bot.logger.info("Permission system initialized")
+        bot.logger.info("Enhanced permission system initialized")
 
     return permission_manager
