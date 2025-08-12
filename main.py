@@ -31,6 +31,7 @@ from dotenv import load_dotenv
 
 from config.settings import BotConfig
 from utils.loguruConfig import configure_logger
+from utils.permissions import setup_permission_system, PermissionLevel
 from utils.exceptions import BotError, ConfigurationError, ShutdownError
 from utils.error_handler import setup_enhanced_error_handling
 
@@ -43,13 +44,13 @@ if TYPE_CHECKING:
 
 class Application(commands.Bot):
     """
-    Professional Discord bot with comprehensive logging, configuration management,
+    Discord bot with comprehensive logging, configuration management,
     enhanced embeds, and graceful shutdown capabilities.
     """
 
     def __init__(self, config: Optional[BotConfig] = None) -> None:
         """
-        Initialize the Discord bot with professional-grade features.
+        Initialize Discord bot application.
 
         Args:
             config: Bot configuration object. If None, loads from default config.
@@ -90,8 +91,10 @@ class Application(commands.Bot):
         self._activity_index: int = 0
         self._shutdown_requested: bool = False  # Simple flag for shutdown
 
-        # Enhanced error handling (will be set up in setup_hook)
+        # Error handling (will be set up in setup_hook)
         self.error_handler = None
+        # Permissions manager (will be set up in setup_hook)
+        self.permission_manager = None
 
         # Optional integrations (to be implemented as needed)
         self.database: Optional[Any] = None
@@ -121,7 +124,11 @@ class Application(commands.Bot):
 
             # Set up enhanced error handling first
             self.error_handler = setup_enhanced_error_handling(self)
-            self.logger.info("Enhanced error handling configured")
+            self.logger.info("Error handler configured")
+
+            # Set up permission system
+            self.permission_manager = setup_permission_system(self)
+            self.logger.info("Permission system initialized")
 
             # Load extensions/cogs
             await self._load_extensions()
@@ -255,7 +262,7 @@ class Application(commands.Bot):
 
         # Force immediate exit - no async, no waiting
         import os
-        os._exit(0)
+        os._exit(0)  # NOQA
 
     def request_shutdown(self) -> None:
         """Request a shutdown. Safe to call from any context."""

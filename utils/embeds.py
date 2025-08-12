@@ -1,5 +1,5 @@
 """
-Enhanced Embed Utilities
+Embed Utilities
 ========================
 
 Comprehensive embed system for consistent, beautiful Discord embeds with smart

@@ -533,6 +533,17 @@ class BasicCommands(commands.Cog):
 
     # // ========================================( Admin Commands )======================================== // #
 
+    @commands.command()
+    @commands.is_owner()
+    async def get_role_ids(self, ctx):
+        roles_info = []
+        for role in ctx.guild.roles:
+            if role.name != "@everyone":
+                roles_info.append(f"`{role.id}` - {role.name}")
+
+        # Send as multiple messages if needed
+        await ctx.send("\n".join(roles_info[:20]))
+
     @commands.command(name="shutdown")
     @commands.is_owner()
     @commands.cooldown(1, 60, commands.BucketType.default)  # Prevent accidental spam
