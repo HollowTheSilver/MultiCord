@@ -93,9 +93,9 @@ class Application(commands.Bot):
         self._activity_index: int = 0
         self._shutdown_requested: bool = False  # Simple flag for shutdown
 
-        # Error handling (will be set up in setup_hook)
+        # Error handler (will be set up in setup_hook)
         self.error_handler = None
-        # Enhanced permissions manager (will be set up in setup_hook)
+        # Permissions manager (will be set up in setup_hook)
         self.permission_manager = None
 
         # Optional integrations (to be implemented as needed)

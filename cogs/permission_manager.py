@@ -1,6 +1,6 @@
 """
 Permission Manager Cog
-===============================================
+========================================================
 
 Hybrid commands for both slash and text command support.
 """
@@ -16,7 +16,9 @@ from utils.permissions import (
     require_permission,
     require_level,
     PermissionLevel,
-    EnhancedPermissionManager
+    EnhancedPermissionManager,
+    RoleType,
+    normalize_discord_text
 )
 from utils.embeds import (
     create_success_embed,
@@ -32,6 +34,7 @@ from utils.exceptions import ValidationError
 class PermissionManager(commands.Cog):
     """
     Comprehensive permission management interface for server administrators.
+    Enhanced with intelligent role classification and Unicode text support.
     """
 
     def __init__(self, bot: commands.Bot) -> None:
@@ -90,19 +93,19 @@ class PermissionManager(commands.Cog):
 
     @commands.hybrid_command(
         name="permissions-setup",
-        description="Auto-configure role permissions based on Discord permissions and role names"
+        description="Auto-configure role permissions using intelligent classification and hierarchy analysis"
     )
     @commands.guild_only()
     @require_level(PermissionLevel.ADMIN)
     async def setup_permissions(self, ctx: commands.Context) -> None:
         """
-        Auto-configure role permissions based on Discord permissions and role names.
+        Auto-configure role permissions using intelligent classification and hierarchy analysis.
         """
         # Show loading message
         loading_embed = EmbedBuilder(
             EmbedType.LOADING,
             "🔍 Analyzing Server Roles",
-            "Detecting role permissions and suggesting mappings..."
+            "Performing intelligent role classification and hierarchy analysis..."
         ).build()
 
         message = await ctx.send(embed=loading_embed)
@@ -113,29 +116,52 @@ class PermissionManager(commands.Cog):
                 ctx.guild, ctx.author.id
             )
 
+            # Get role classifications for display
+            config = self.permission_manager.get_guild_config(ctx.guild.id)
+            role_classifications = config.role_classifications
+
+            # Count classifications
+            classification_counts = {}
+            for role_type in RoleType:
+                count = sum(1 for rt in role_classifications.values() if rt == role_type)
+                if count > 0:
+                    classification_counts[role_type] = count
+
             # Create results embed
             embed = EmbedBuilder(
                 EmbedType.SUCCESS,
-                "🔧 Permission Setup Complete",
-                f"Analyzed {len(ctx.guild.roles)} roles and configured {len(confident_mappings)} automatically."
+                "🧠 Intelligent Setup Complete",
+                f"Analyzed {len(ctx.guild.roles)} roles using intelligent classification. "
+                f"Configured {len(confident_mappings)} authority roles for hierarchy."
             )
 
-            # Show confident mappings
+            # Show classification summary
+            if classification_counts:
+                classification_text = []
+                for role_type, count in classification_counts.items():
+                    icon = self._get_role_type_icon(role_type)
+                    classification_text.append(f"{icon} **{role_type.value.title()}:** {count}")
+
+                embed.add_field(
+                    name="🔍 Role Classification Results",
+                    value="\n".join(classification_text),
+                    inline=False
+                )
+
+            # Show confident authority mappings
             if confident_mappings:
                 confident_text = []
-                for role_id, level in confident_mappings.items():
+                for role_id, level in list(confident_mappings.items())[:8]:  # Limit display
                     role = ctx.guild.get_role(role_id)
                     if role:
                         confident_text.append(f"• {role.mention} → **{level.name.title()}**")
 
-                # Limit display to prevent embed overflow
-                display_mappings = confident_text[:10]
-                if len(confident_text) > 10:
-                    display_mappings.append(f"... and {len(confident_text) - 10} more")
+                if len(confident_mappings) > 8:
+                    confident_text.append(f"... and {len(confident_mappings) - 8} more")
 
                 embed.add_field(
-                    name="✅ Auto-Configured Roles",
-                    value="\n".join(display_mappings),
+                    name="✅ Authority Role Hierarchy",
+                    value="\n".join(confident_text),
                     inline=False
                 )
 
@@ -161,17 +187,28 @@ class PermissionManager(commands.Cog):
                     inline=False
                 )
 
+            # Key improvements
+            embed.add_field(
+                name="🚀 Intelligence Features",
+                value="• **Bot roles filtered out** (no longer interfere with hierarchy)\n"
+                      "• **Cosmetic roles identified** (colors, teams, etc.)\n"
+                      "• **Position-based hierarchy** within authority roles\n"
+                      "• **Unicode text normalization** for fancy role names",
+                inline=False
+            )
+
             # Next steps
             embed.add_field(
                 name="📋 What's Next?",
                 value="• Review with `/permissions-list`\n"
+                      "• Check classifications with `/permissions-classify`\n"
                       "• Adjust roles with `/permissions-set-role`\n"
-                      "• Customize commands with `/permissions-set-command`",
+                      "• Debug with `/permissions-analyze`",
                 inline=False
             )
 
             embed.set_footer(
-                f"Configured by {ctx.author.display_name}",
+                f"Configured by {ctx.author.display_name} • Intelligent classification system",
                 icon_url=ctx.author.display_avatar.url
             )
 
@@ -180,10 +217,248 @@ class PermissionManager(commands.Cog):
         except Exception as e:
             error_embed = create_error_embed(
                 title="Setup Failed",
-                description=f"An error occurred during setup: {str(e)}",
+                description=f"An error occurred during intelligent setup: {str(e)}",
                 user=ctx.author
             )
             await message.edit(embed=error_embed)
+
+    @commands.hybrid_command(
+        name="permissions-classify",
+        description="View intelligent role classifications for this server"
+    )
+    @commands.guild_only()
+    @require_level(PermissionLevel.ADMIN)
+    async def view_classifications(self, ctx: commands.Context) -> None:
+        """
+        View intelligent role classifications for this server.
+        """
+        config = self.permission_manager.get_guild_config(ctx.guild.id)
+
+        if not config.role_classifications:
+            embed = create_warning_embed(
+                title="No Classifications",
+                description="No role classifications found. Run `/permissions-setup` first to classify roles.",
+                user=ctx.author
+            )
+            await ctx.send(embed=embed)
+            return
+
+        embed = EmbedBuilder(
+            EmbedType.INFO,
+            f"🔍 Role Classifications - {ctx.guild.name}",
+            "Intelligent classification results for all server roles"
+        )
+
+        # Group roles by type
+        role_groups = {}
+        for role_id, role_type in config.role_classifications.items():
+            if role_type not in role_groups:
+                role_groups[role_type] = []
+
+            role = ctx.guild.get_role(role_id)
+            if role:
+                role_groups[role_type].append(role)
+
+        # Display each role type
+        for role_type in RoleType:
+            if role_type in role_groups:
+                roles = role_groups[role_type]
+                icon = self._get_role_type_icon(role_type)
+
+                role_list = []
+                for role in roles[:8]:  # Limit display
+                    # Show if role is in authority hierarchy
+                    if role.id in config.role_mappings:
+                        level = config.role_mappings[role.id]
+                        role_list.append(f"• {role.mention} → {level.name.title()}")
+                    else:
+                        role_list.append(f"• {role.mention}")
+
+                if len(roles) > 8:
+                    role_list.append(f"... and {len(roles) - 8} more")
+
+                embed.add_field(
+                    name=f"{icon} {role_type.value.title()} ({len(roles)})",
+                    value="\n".join(role_list) if role_list else "None",
+                    inline=False
+                )
+
+        # Add explanation
+        embed.add_field(
+            name="💡 Classification Types",
+            value="**Authority:** Human hierarchy roles (used for permissions)\n"
+                  "**Bot:** Bot-managed roles (filtered out)\n"  
+                  "**Cosmetic:** Display-only roles (colors, teams)\n"
+                  "**Integration:** Discord integrations (Nitro, etc.)\n"
+                  "**Functional:** Channel-specific permissions\n"
+                  "**Unknown:** Couldn't classify confidently",
+            inline=False
+        )
+
+        embed.set_footer(
+            f"Requested by {ctx.author.display_name}",
+            icon_url=ctx.author.display_avatar.url
+        )
+
+        await ctx.send(embed=embed.build())
+
+    @commands.hybrid_command(
+        name="permissions-analyze",
+        description="Show detailed analysis of role hierarchy and classification (debug command)"
+    )
+    @commands.guild_only()
+    @require_level(PermissionLevel.ADMIN)
+    async def analyze_hierarchy(self, ctx: commands.Context) -> None:
+        """
+        Show detailed analysis of role hierarchy and classification for debugging.
+        """
+        # Show loading message
+        loading_embed = EmbedBuilder(
+            EmbedType.LOADING,
+            "🔍 Performing Deep Analysis",
+            "Analyzing role hierarchy, classifications, and Unicode normalization..."
+        ).build()
+
+        message = await ctx.send(embed=loading_embed)
+
+        try:
+            # Get detailed analysis report
+            report = self.permission_manager.role_classifier.get_analysis_report(ctx.guild)
+
+            # Create embed with analysis results
+            embed = EmbedBuilder(
+                EmbedType.INFO,
+                f"🧠 Deep Analysis - {ctx.guild.name}",
+                "Detailed classification and hierarchy analysis for debugging"
+            )
+
+            # Count roles by type and category
+            config = self.permission_manager.get_guild_config(ctx.guild.id)
+
+            type_counts = {}
+            authority_categories = {}
+
+            for role in ctx.guild.roles:
+                if role.name == "@everyone":
+                    continue
+
+                # Get classification
+                role_type = config.role_classifications.get(role.id, RoleType.UNKNOWN)
+                type_counts[role_type] = type_counts.get(role_type, 0) + 1
+
+                # If authority role, analyze category
+                if role_type == RoleType.AUTHORITY:
+                    analysis = self.permission_manager.role_classifier._analyze_single_role(role)
+                    category = analysis.category
+                    authority_categories[category] = authority_categories.get(category, [])
+                    authority_categories[category].append((role, analysis.confidence))
+
+            # Summary statistics
+            total_roles = len(ctx.guild.roles) - 1  # Exclude @everyone
+            authority_count = type_counts.get(RoleType.AUTHORITY, 0)
+
+            embed.add_field(
+                name="📊 Classification Summary",
+                value=f"**Total Roles:** {total_roles}\n"
+                      f"**Authority Roles:** {authority_count}\n"
+                      f"**Bot Roles:** {type_counts.get(RoleType.BOT, 0)}\n"
+                      f"**Cosmetic Roles:** {type_counts.get(RoleType.COSMETIC, 0)}\n"
+                      f"**Other Types:** {total_roles - authority_count - type_counts.get(RoleType.BOT, 0) - type_counts.get(RoleType.COSMETIC, 0)}",
+                inline=True
+            )
+
+            # Authority role breakdown
+            if authority_categories:
+                auth_text = []
+                for category, roles_with_confidence in authority_categories.items():
+                    # Sort by confidence (highest first)
+                    roles_with_confidence.sort(key=lambda x: x[1], reverse=True)
+
+                    auth_text.append(f"**{category.value.title()}:** {len(roles_with_confidence)}")
+                    for role, confidence in roles_with_confidence[:3]:  # Top 3
+                        auth_text.append(f"  • {role.name} ({confidence:.2f})")
+
+                    if len(roles_with_confidence) > 3:
+                        auth_text.append(f"  ... +{len(roles_with_confidence) - 3} more")
+
+                embed.add_field(
+                    name="🎭 Authority Categories",
+                    value="\n".join(auth_text),
+                    inline=True
+                )
+
+            # Unicode normalization examples
+            unicode_examples = []
+            for role in ctx.guild.roles[:5]:  # Check first 5 roles
+                if role.name == "@everyone":
+                    continue
+
+                original = role.name
+                normalized = normalize_discord_text(original)
+
+                if original.lower() != normalized:
+                    unicode_examples.append(f"• `{original}` → `{normalized}`")
+
+            if unicode_examples:
+                embed.add_field(
+                    name="🔤 Unicode Normalization",
+                    value="\n".join(unicode_examples[:3]) + (
+                        f"\n... +{len(unicode_examples) - 3} more" if len(unicode_examples) > 3 else ""
+                    ),
+                    inline=False
+                )
+
+            # Key features explanation
+            embed.add_field(
+                name="🚀 Advanced Features",
+                value="• **Intelligent Classification:** Separates bots, cosmetics, authority\n"
+                      "• **Hierarchy Preservation:** Uses Discord position within categories\n"
+                      "• **Unicode Support:** Handles fancy characters in role names\n"
+                      "• **Performance Optimized:** Limits analysis scope intelligently\n"
+                      "• **Manual Override:** Admins can correct classifications",
+                inline=False
+            )
+
+            embed.add_field(
+                name="💡 How This Works",
+                value="1. **Classify** all roles by type (bot, cosmetic, authority, etc.)\n"
+                      "2. **Filter** to only authority roles for hierarchy analysis\n"
+                      "3. **Group** authority roles by function (admin, mod, member)\n"
+                      "4. **Apply hierarchy** using Discord position within each group\n"
+                      "5. **Normalize text** to handle Unicode characters",
+                inline=False
+            )
+
+            embed.set_footer(
+                f"Analysis by {ctx.author.display_name} • Deep analysis complete",
+                icon_url=ctx.author.display_avatar.url
+            )
+
+            await message.edit(embed=embed.build())
+
+            # Log the analysis
+            self.logger.info("Deep analysis command executed", extra={
+                "guild": ctx.guild.name,
+                "guild_id": ctx.guild.id,
+                "total_roles": total_roles,
+                "authority_roles": authority_count,
+                "bot_roles": type_counts.get(RoleType.BOT, 0),
+                "cosmetic_roles": type_counts.get(RoleType.COSMETIC, 0),
+                "user": str(ctx.author)
+            })
+
+        except Exception as e:
+            error_embed = create_error_embed(
+                title="Analysis Failed",
+                description=f"An error occurred during deep analysis: {str(e)}",
+                user=ctx.author
+            )
+            await message.edit(embed=error_embed)
+
+            self.logger.error(f"Deep analysis failed: {e}", extra={
+                "guild": ctx.guild.name,
+                "user": str(ctx.author)
+            })
 
     @commands.hybrid_command(
         name="permissions-list",
@@ -202,7 +477,7 @@ class PermissionManager(commands.Cog):
             f"🎭 {ctx.guild.name} - Permission Configuration"
         )
 
-        # Role mappings
+        # Role mappings (only authority roles should be mapped)
         if config.role_mappings:
             role_mappings = self.permission_manager.get_guild_role_mappings(ctx.guild)
             role_text = []
@@ -218,13 +493,13 @@ class PermissionManager(commands.Cog):
                 role_text.append(f"... and {len(role_mappings) - 15} more roles")
 
             embed.add_field(
-                name="🎭 Role Mappings",
+                name="🎭 Authority Role Mappings",
                 value="\n".join(role_text) if role_text else "No roles configured",
                 inline=False
             )
         else:
             embed.add_field(
-                name="🎭 Role Mappings",
+                name="🎭 Authority Role Mappings",
                 value="❌ No roles configured\nRun `/permissions-setup` to auto-configure roles.",
                 inline=False
             )
@@ -250,10 +525,30 @@ class PermissionManager(commands.Cog):
                 inline=False
             )
 
+        # Classification summary
+        if config.role_classifications:
+            classification_counts = {}
+            for role_type in RoleType:
+                count = sum(1 for rt in config.role_classifications.values() if rt == role_type)
+                if count > 0:
+                    classification_counts[role_type] = count
+
+            if classification_counts:
+                class_text = []
+                for role_type, count in classification_counts.items():
+                    icon = self._get_role_type_icon(role_type)
+                    class_text.append(f"{icon} {role_type.value.title()}: {count}")
+
+                embed.add_field(
+                    name="🔍 Role Classifications",
+                    value="\n".join(class_text),
+                    inline=True
+                )
+
         # Configuration info
         status_text = []
         if config.auto_configured:
-            status_text.append("✅ Auto-configured")
+            status_text.append("✅ Auto-configured with intelligent classification")
         else:
             status_text.append("❌ Not auto-configured")
 
@@ -319,6 +614,10 @@ class PermissionManager(commands.Cog):
                 expected_format=f"one of: {', '.join(valid_levels)}"
             )
 
+        # Get current classification
+        config = self.permission_manager.get_guild_config(ctx.guild.id)
+        role_type = config.role_classifications.get(role.id, RoleType.UNKNOWN)
+
         # Set the role permission
         self.permission_manager.set_role_permission_level(
             guild_id=ctx.guild.id,
@@ -334,11 +633,13 @@ class PermissionManager(commands.Cog):
             user=ctx.author
         )
 
-        # Show what this role can now do
+        # Show role classification info
+        icon = self._get_role_type_icon(role_type)
         embed.add_field(
-            name="📊 Permission Level",
-            value=f"**Level:** {permission_level.name.title()}\n"
-                  f"**Value:** {permission_level.value}",
+            name="📊 Role Information",
+            value=f"**Permission Level:** {permission_level.name.title()}\n"
+                  f"**Role Type:** {icon} {role_type.value.title()}\n"
+                  f"**Members:** {len(role.members)}",
             inline=True
         )
 
@@ -361,6 +662,15 @@ class PermissionManager(commands.Cog):
             embed.add_field(
                 name="✅ Can Use Commands",
                 value=", ".join([f"`{cmd}`" for cmd in display_commands]),
+                inline=False
+            )
+
+        # Warning for non-authority roles
+        if role_type != RoleType.AUTHORITY:
+            embed.add_field(
+                name="💡 Classification Note",
+                value=f"This role is classified as **{role_type.value.title()}**. "
+                      f"Consider if it should really have authority permissions.",
                 inline=False
             )
 
@@ -477,7 +787,7 @@ class PermissionManager(commands.Cog):
             inline=True
         )
 
-        # Check if any roles can use this command
+        # Check if any roles can use this command (only authority roles)
         config = self.permission_manager.get_guild_config(ctx.guild.id)
         eligible_roles = []
         for role_id, role_level in config.role_mappings.items():
@@ -495,7 +805,7 @@ class PermissionManager(commands.Cog):
         else:
             embed.add_field(
                 name="⚠️ Warning",
-                value="No roles are currently mapped to this permission level or higher!\n"
+                value="No authority roles are currently mapped to this permission level or higher!\n"
                       "Consider using `/permissions-set-role` to grant access.",
                 inline=False
             )
@@ -538,24 +848,37 @@ class PermissionManager(commands.Cog):
             inline=False
         )
 
-        # Role analysis
+        # Role analysis with classifications
         config = self.permission_manager.get_guild_config(ctx.guild.id)
         role_analysis = []
+
+        authority_roles = []
+        other_roles = []
 
         for role in target_user.roles:
             if role.name == "@everyone":
                 continue
 
+            role_type = config.role_classifications.get(role.id, RoleType.UNKNOWN)
+            icon = self._get_role_type_icon(role_type)
+
             if role.id in config.role_mappings:
                 role_level = config.role_mappings[role.id]
-                role_analysis.append(f"• {role.mention} → {role_level.name.title()}")
+                authority_roles.append(f"• {role.mention} → {role_level.name.title()}")
             else:
-                role_analysis.append(f"• {role.mention} → Not configured")
+                other_roles.append(f"• {icon} {role.mention} ({role_type.value})")
 
-        if role_analysis:
+        if authority_roles:
             embed.add_field(
-                name="🎭 Role Analysis",
-                value="\n".join(role_analysis[:8]),  # Limit display
+                name="🎭 Authority Roles",
+                value="\n".join(authority_roles[:8]),  # Limit display
+                inline=False
+            )
+
+        if other_roles:
+            embed.add_field(
+                name="🏷️ Other Roles",
+                value="\n".join(other_roles[:6]),  # Limit display
                 inline=False
             )
 
@@ -605,7 +928,8 @@ class PermissionManager(commands.Cog):
 
         embed.add_field(
             name="What will be reset:",
-            value="• All role permission mappings\n"
+            value="• All authority role permission mappings\n"
+                  "• All role classifications\n"
                   "• All command requirement overrides\n"
                   "• Auto-configuration status",
             inline=False
@@ -613,7 +937,7 @@ class PermissionManager(commands.Cog):
 
         embed.add_field(
             name="💡 What to do after reset:",
-            value="Run `/permissions-setup` to reconfigure automatically",
+            value="Run `/permissions-setup` to reconfigure automatically with intelligent classification",
             inline=False
         )
 
@@ -646,7 +970,7 @@ class PermissionManager(commands.Cog):
 
             success_embed.add_field(
                 name="Next Steps",
-                value="Run `/permissions-setup` to reconfigure your server permissions.",
+                value="Run `/permissions-setup` to reconfigure your server permissions with intelligent classification.",
                 inline=False
             )
 
@@ -661,6 +985,22 @@ class PermissionManager(commands.Cog):
             )
             await message.edit(embed=timeout_embed.build())
             await message.clear_reactions()
+
+    # // ========================================( Utility Methods )======================================== // #
+
+    def _get_role_type_icon(self, role_type: RoleType) -> str:
+        """Get an icon for a role type."""
+        icons = {
+            RoleType.AUTHORITY: "🎭",
+            RoleType.BOT: "🤖",
+            RoleType.INTEGRATION: "🔗",
+            RoleType.COSMETIC: "🎨",
+            RoleType.FUNCTIONAL: "⚙️",
+            RoleType.REACTION: "📝",
+            RoleType.TEMPORARY: "⏰",
+            RoleType.UNKNOWN: "❓"
+        }
+        return icons.get(role_type, "❓")
 
     def _get_level_description(self, level: PermissionLevel) -> str:
         """Get a human-readable description of a permission level."""
@@ -681,6 +1021,6 @@ class PermissionManager(commands.Cog):
 
 async def setup(bot: commands.Bot) -> None:
     """
-    Setup function to add the permission management commands cog to the bot.
+    Setup function to add the permission manager commands cog to the bot.
     """
     await bot.add_cog(PermissionManager(bot))
