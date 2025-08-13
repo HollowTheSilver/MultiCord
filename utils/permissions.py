@@ -1,8 +1,9 @@
 """
-Permission System
+Enhanced Permission System
 ===========================
 
-Permission management system with:
+Upgraded permission management system with:
+- Enhanced permission levels (LEAD_MOD, LEAD_ADMIN)
 - Auto-detection of Discord roles
 - Guild-specific permission node overrides
 - Management commands for configuration
@@ -280,7 +281,7 @@ class RoleDetectionSystem:
         return False
 
 
-# // ========================================( Enhanced Permission Manager )======================================== // #
+# // =======================================( Enhanced Permission Manager )======================================= // #
 
 
 class EnhancedPermissionManager:
@@ -1124,27 +1125,10 @@ def setup_enhanced_permission_system(bot: commands.Bot) -> EnhancedPermissionMan
     permission_manager = EnhancedPermissionManager(bot)
     bot.permission_manager = permission_manager
 
-    # Set up event handlers for automatic role configuration
-    @bot.event
-    async def on_guild_join(guild: discord.Guild):
-        """Configure role permissions when joining a new guild."""
-        await permission_manager.auto_configure_guild(guild)
-
-    @bot.event
-    async def on_ready():
-        """Configure role permissions for all guilds on startup."""
-        if hasattr(bot, '_permission_setup_complete'):
-            return  # Avoid duplicate setup on reconnect
-
-        for guild in bot.guilds:
-            # Only auto-configure if not already configured
-            config = permission_manager.get_guild_config(guild.id)
-            if not config.auto_configured:
-                await permission_manager.auto_configure_guild(guild)
-
-        bot._permission_setup_complete = True
+    # NOTE: Event handlers (on_ready, on_guild_join) moved to Application class
+    # to avoid event override conflicts with @bot.event decorators
 
     if hasattr(bot, 'logger'):
-        bot.logger.info("Enhanced permission system initialized")
+        bot.logger.info("Successfully initialized module")
 
     return permission_manager

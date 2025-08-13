@@ -49,14 +49,14 @@ class ShutdownError(LoggingError):
 # Discord.py compatible formats (matches discord.py exactly)
 DISCORD_CONSOLE_FORMAT = (
     "{time:YYYY-MM-DD HH:mm:ss},{time:SSS} "
-    "<level>{level: <8}</level> "
+    "<level>{level: <5}</level> "
     "<cyan>{name}</cyan> "
     "{message}"
 )
 
 DISCORD_CONSOLE_FORMAT_EXTRA = (
     "{time:YYYY-MM-DD HH:mm:ss},{time:SSS} "
-    "<level>{level: <8}</level> "
+    "<level>{level: <5}</level> "
     "<cyan>{name}</cyan> "
     "{message} "
     "<dim>{extra}</dim>"
@@ -64,14 +64,14 @@ DISCORD_CONSOLE_FORMAT_EXTRA = (
 
 DISCORD_FILE_FORMAT = (
     "{time:YYYY-MM-DD HH:mm:ss},{time:SSS} "
-    "{level:<8} "
+    "{level:<5} "
     "{name} "
     "{message}"
 )
 
 DISCORD_FILE_FORMAT_EXTRA = (
     "{time:YYYY-MM-DD HH:mm:ss},{time:SSS} "
-    "{level:<8} "
+    "{level:<5} "
     "{name} "
     "{message} "
     "{extra}"

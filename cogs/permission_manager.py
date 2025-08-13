@@ -1,8 +1,8 @@
 """
-Permission Management Commands
+Permission Manager Cog
 ===============================================
 
-Updated to use hybrid commands for both slash and text command support.
+Hybrid commands for both slash and text command support.
 """
 
 import asyncio
@@ -29,7 +29,7 @@ from utils.embeds import (
 from utils.exceptions import ValidationError
 
 
-class PermissionManagementCommands(commands.Cog):
+class PermissionManager(commands.Cog):
     """
     Comprehensive permission management interface for server administrators.
     """
@@ -43,7 +43,23 @@ class PermissionManagementCommands(commands.Cog):
             format_extra=True,
             discord_compat=True
         )
-        self.logger.info("Permission Manager cog initialized")
+
+        # Auto-register event listeners
+        _listeners: List[callable] = list()
+        for attr in dir(self):
+            if awaitable := getattr(self, attr, None):
+                if callable(awaitable) and attr.startswith("on_"):
+                    _listeners.append(awaitable)
+        _failed: List[Optional[callable]] = list()
+        for _listener in _listeners:
+            try:
+                self.bot.add_listener(_listener, _listener.__name__)
+            except (TypeError, AttributeError, Exception):
+                _failed.append(str(_listener) if not callable(_listener) else _listener.__name__)
+        if _listeners:
+            self.logger.info(f"Registered <{len(_listeners)}> event listeners")
+        for _listener in _failed:
+            self.logger.error(f"Failed to register listener '{_listener}'")
 
     @property
     def permission_manager(self) -> EnhancedPermissionManager:
@@ -51,6 +67,24 @@ class PermissionManagementCommands(commands.Cog):
         if not hasattr(self.bot, 'permission_manager'):
             raise RuntimeError("Permission system not initialized")
         return self.bot.permission_manager
+
+    # // ========================================( Cog Events )======================================== // #
+
+    async def cog_load(self) -> None:
+        """Called when the cog is loaded."""
+        self.logger.info("Successfully loaded cog")
+
+    async def cog_unload(self) -> None:
+        """Called when the cog is unloaded."""
+        self.logger.info("Cog unloaded successfully")
+
+    async def cog_command_error(self, ctx: commands.Context, error: commands.CommandError) -> None:
+        """Handle errors that occur in this cog's commands."""
+        self.logger.error(f"Command error in Permissions Manager cog: {error}", extra={
+            "command": ctx.command.qualified_name if ctx.command else "unknown",
+            "user": str(ctx.author),
+            "guild": ctx.guild.name if ctx.guild else "DM"
+        })
 
     # // ========================================( Setup Commands )======================================== // #
 
@@ -649,4 +683,4 @@ async def setup(bot: commands.Bot) -> None:
     """
     Setup function to add the permission management commands cog to the bot.
     """
-    await bot.add_cog(PermissionManagementCommands(bot))
+    await bot.add_cog(PermissionManager(bot))

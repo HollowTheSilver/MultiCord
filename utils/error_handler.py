@@ -686,10 +686,12 @@ def setup_enhanced_error_handling(bot: commands.Bot) -> EnhancedErrorHandler:
     """
     error_handler = EnhancedErrorHandler(bot)
 
-    # Override the bot's error handler
-    async def on_command_error(ctx: commands.Context, error: commands.CommandError) -> None:
-        await error_handler.handle_command_error(ctx, error)
+    # Store the error handler on the bot instance for access in Application class
+    bot.error_handler = error_handler
 
-    bot.on_command_error = on_command_error
+    # NOTE: on_command_error handling moved to Application class to avoid event override conflicts
+
+    if hasattr(bot, 'logger'):
+        bot.logger.info("Successfully initialized module")
 
     return error_handler

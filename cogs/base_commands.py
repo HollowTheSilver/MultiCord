@@ -1,8 +1,8 @@
 """
-Basic Commands Cog (V2)
+Base Commands Cog
 ================================
 
-Upgraded version of the basic commands cog featuring:
+Base commands cog featuring:
 - Beautiful, consistent embeds
 - Command cooldowns
 - Input validation
@@ -13,7 +13,7 @@ Upgraded version of the basic commands cog featuring:
 import asyncio
 import platform
 import time
-from typing import Optional, Union
+from typing import Optional, Union, List
 
 import discord
 from discord.ext import commands
@@ -32,7 +32,7 @@ from utils.embeds import (
 )
 
 
-class BasicCommands(commands.Cog):
+class BaseCommands(commands.Cog):
     """
     Enhanced basic commands cog with beautiful embeds and improved UX.
     """
@@ -52,21 +52,37 @@ class BasicCommands(commands.Cog):
             discord_compat=True
         )
         self._start_time = time.time()
-        self.logger.info("Basic Commands cog initialized")
+
+        # Auto-register event listeners
+        _listeners: List[callable] = list()
+        for attr in dir(self):
+            if awaitable := getattr(self, attr, None):
+                if callable(awaitable) and attr.startswith("on_"):
+                    _listeners.append(awaitable)
+        _failed: List[Optional[callable]] = list()
+        for _listener in _listeners:
+            try:
+                self.bot.add_listener(_listener, _listener.__name__)
+            except (TypeError, AttributeError, Exception):
+                _failed.append(str(_listener) if not callable(_listener) else _listener.__name__)
+        if _listeners:
+            self.logger.info(f"Registered <{len(_listeners)}> event listeners")
+        for _listener in _failed:
+            self.logger.error(f"Failed to register listener '{_listener}'")
 
     # // ========================================( Cog Events )======================================== // #
 
     async def cog_load(self) -> None:
         """Called when the cog is loaded."""
-        self.logger.info("Enhanced Basic Commands cog loaded successfully")
+        self.logger.info("Successfully loaded cog")
 
     async def cog_unload(self) -> None:
         """Called when the cog is unloaded."""
-        self.logger.info("Enhanced Basic Commands cog unloaded")
+        self.logger.info("Cog unloaded successfully")
 
     async def cog_command_error(self, ctx: commands.Context, error: commands.CommandError) -> None:
         """Handle errors that occur in this cog's commands."""
-        self.logger.error(f"Command error in Enhanced Basic Commands: {error}", extra={
+        self.logger.error(f"Command error in Base Commands cog: {error}", extra={
             "command": ctx.command.qualified_name if ctx.command else "unknown",
             "user": str(ctx.author),
             "guild": ctx.guild.name if ctx.guild else "DM"
@@ -532,20 +548,56 @@ class BasicCommands(commands.Cog):
 
     # // ========================================( Admin Commands )======================================== // #
 
-    @commands.command()
+    @commands.hybrid_command(
+        name="get-role-ids",
+        description="Get role IDs and names for this server (owner only)"
+    )
     @commands.is_owner()
-    async def get_role_ids(self, ctx):
+    @commands.guild_only()
+    async def get_role_ids(self, ctx: commands.Context) -> None:
+        """Get role IDs and names for server configuration."""
         roles_info = []
         for role in ctx.guild.roles:
             if role.name != "@everyone":
                 roles_info.append(f"`{role.id}` - {role.name}")
 
-        # Send as multiple messages if needed
-        await ctx.send("\n".join(roles_info[:20]))
+        # Create embed for better formatting
+        embed = EmbedBuilder(
+            EmbedType.INFO,
+            f"🎭 Role IDs - {ctx.guild.name}",
+            "Role IDs and names for configuration"
+        )
 
-    @commands.command(name="shutdown")
+        # Split into chunks if too many roles
+        role_chunks = [roles_info[i:i + 20] for i in range(0, len(roles_info), 20)]
+
+        for i, chunk in enumerate(role_chunks[:3]):  # Limit to 3 chunks to prevent embed overflow
+            embed.add_field(
+                name=f"Roles {i * 20 + 1}-{i * 20 + len(chunk)}" if len(role_chunks) > 1 else "Roles",
+                value="\n".join(chunk),
+                inline=False
+            )
+
+        if len(role_chunks) > 3:
+            embed.add_field(
+                name="Note",
+                value=f"Showing first 60 roles. Total roles: {len(roles_info)}",
+                inline=False
+            )
+
+        embed.set_footer(
+            f"Requested by {ctx.author.display_name}",
+            icon_url=ctx.author.display_avatar.url
+        )
+
+        await ctx.send(embed=embed.build())
+
+    @commands.hybrid_command(
+        name="shutdown",
+        description="Gracefully shutdown the bot (owner only)"
+    )
     @commands.is_owner()
-    @commands.cooldown(1, 60, commands.BucketType.default)  # Prevent accidental spam
+    @commands.cooldown(1, 60, commands.BucketType.default)
     async def shutdown(self, ctx: commands.Context) -> None:
         """
         Gracefully shutdown the bot (owner only).
@@ -672,4 +724,4 @@ async def setup(bot: commands.Bot) -> None:
     Args:
         bot: The bot instance
     """
-    await bot.add_cog(BasicCommands(bot))
+    await bot.add_cog(BaseCommands(bot))

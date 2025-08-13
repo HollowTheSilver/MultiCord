@@ -32,7 +32,7 @@ from dotenv import load_dotenv
 
 from config.settings import BotConfig
 from utils.loguruConfig import configure_logger
-from utils.permissions import setup_enhanced_permission_system, PermissionLevel  # Updated import
+from utils.permissions import setup_enhanced_permission_system, PermissionLevel
 from utils.exceptions import BotError, ConfigurationError, ShutdownError
 from utils.error_handler import setup_enhanced_error_handling
 
@@ -89,6 +89,7 @@ class Application(commands.Bot):
 
         # Bot state management
         self._startup_complete: bool = False
+        self._permission_setup_complete: bool = False
         self._activity_index: int = 0
         self._shutdown_requested: bool = False  # Simple flag for shutdown
 
@@ -121,15 +122,11 @@ class Application(commands.Bot):
             BotError: If setup fails at any stage.
         """
         try:
-            self.logger.info("Starting bot initialization...")
-
-            # Set up enhanced error handling first
+            # Configure error handler
             self.error_handler = setup_enhanced_error_handling(self)
-            self.logger.info("Error handler configured")
 
-            # Set up enhanced permission system
+            # Configure permission manager
             self.permission_manager = setup_enhanced_permission_system(self)
-            self.logger.info("Permission manager configured")
 
             # Load extensions/cogs
             await self._load_extensions()
@@ -142,8 +139,6 @@ class Application(commands.Bot):
 
             # Setup signal handlers for graceful shutdown
             self._setup_signal_handlers()
-
-            self.logger.info("Bot initialization completed successfully")
 
         except Exception as e:
             self.logger.error(f"Failed to initialize bot: {e}", extra={"error": str(e)})
@@ -170,7 +165,6 @@ class Application(commands.Bot):
 
             try:
                 await self.load_extension(cog_name)
-                self.logger.info(f"Loaded cog: {cog_name}")
                 loaded_count += 1
 
             except Exception as e:
@@ -214,7 +208,7 @@ class Application(commands.Bot):
                 self.logger.info(f"Status cycling task started with {len(self.config.STATUS_MESSAGES)} statuses")
             else:
                 # Single status - will be set in on_ready when bot is connected
-                self.logger.info("Single status configured (will be set when bot connects)")
+                ...
 
         if self.config.ENABLE_HEALTH_CHECKS:
             self.health_check_task.start()
@@ -308,6 +302,9 @@ class Application(commands.Bot):
     async def health_check_task(self) -> None:
         """Perform periodic health checks."""
         try:
+            # Initialize cache_stats with default values
+            cache_stats = {'hit_rate': 0, 'total_checks': 0}
+
             # Check database connection
             if self.database:
                 # await self.database.execute("SELECT 1")
@@ -327,7 +324,7 @@ class Application(commands.Bot):
             if self.permission_manager:
                 cache_stats = self.permission_manager.get_cache_stats()
                 if cache_stats['hit_rate'] < 50:  # Low hit rate warning
-                    self.logger.warning(f"Low permission cache hit rate: {cache_stats['hit_rate']}%")
+                    self.logger.debug(f"Low permission cache hit rate: {cache_stats['hit_rate']}%")
 
             self.logger.debug("Health check completed", extra={
                 "latency": f"{latency}ms",
@@ -355,20 +352,33 @@ class Application(commands.Bot):
             "user_count": sum(guild.member_count or 0 for guild in self.guilds)
         })
 
-        # DEBUG: Check if auto-sync is enabled
-        self.logger.info(f"ENABLE_AUTO_SYNC setting: {self.config.ENABLE_AUTO_SYNC}")
+        # Permission system auto-configuration (moved from permission system)
+        if self.permission_manager and not hasattr(self, '_permission_setup_complete'):
+            self.logger.info("Starting permission auto-configuration for all guilds...")
+            configured_count = 0
+
+            for guild in self.guilds:
+                # Only auto-configure if not already configured
+                config = self.permission_manager.get_guild_config(guild.id)
+                if not config.auto_configured:
+                    try:
+                        await self.permission_manager.auto_configure_guild(guild)
+                        configured_count += 1
+                    except Exception as e:
+                        self.logger.error(f"Failed to auto-configure permissions for guild {guild.name}: {e}")
+
+            self.logger.info(f"Permission auto-configuration complete: {configured_count} guilds configured")
+            self._permission_setup_complete = True
 
         # Sync slash commands if enabled
         if self.config.ENABLE_AUTO_SYNC:
-            self.logger.info("Starting slash command sync...")
             try:
                 synced = await self.tree.sync()
-                self.logger.info(f"Successfully synced {len(synced)} slash commands")
-
-                # DEBUG: Show what commands were synced
-                for cmd in synced:
-                    self.logger.info(f"Synced command: {cmd.name}")
-
+                command_names = [cmd.name for cmd in synced]
+                self.logger.info(f"Successfully synced {len(synced)} slash commands", extra={
+                    "synced_count": len(synced),
+                    "commands": command_names
+                })
             except Exception as e:
                 self.logger.error(f"Failed to sync slash commands: {e}")
         else:
@@ -437,11 +447,17 @@ class Application(commands.Bot):
 
     async def on_command_error(self, ctx: commands.Context, error: Exception) -> None:
         """
-        Global command error handler - now handled by enhanced error handler.
-        This method is overridden by the enhanced error handler setup.
+        Global command error handler using enhanced error handler.
         """
-        # This will be overridden by setup_enhanced_error_handling
-        pass
+        if self.error_handler:
+            await self.error_handler.handle_command_error(ctx, error)
+        else:
+            # Fallback if error handler isn't initialized
+            self.logger.error(f"Unhandled command error: {error}", extra={
+                "command": ctx.command.qualified_name if ctx.command else "unknown",
+                "user": str(ctx.author),
+                "guild": ctx.guild.name if ctx.guild else "DM"
+            })
 
     async def on_error(self, event: str, *args: Any, **kwargs: Any) -> None:
         """Global error handler for non-command events."""
