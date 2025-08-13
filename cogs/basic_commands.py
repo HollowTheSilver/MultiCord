@@ -52,8 +52,7 @@ class BasicCommands(commands.Cog):
             discord_compat=True
         )
         self._start_time = time.time()
-
-        self.logger.info("Enhanced Basic Commands cog initialized")
+        self.logger.info("Basic Commands cog initialized")
 
     # // ========================================( Cog Events )======================================== // #
 

@@ -129,7 +129,7 @@ class Application(commands.Bot):
 
             # Set up enhanced permission system
             self.permission_manager = setup_enhanced_permission_system(self)
-            self.logger.info("Enhanced permission system initialized")
+            self.logger.info("Permission manager configured")
 
             # Load extensions/cogs
             await self._load_extensions()
@@ -355,10 +355,29 @@ class Application(commands.Bot):
             "user_count": sum(guild.member_count or 0 for guild in self.guilds)
         })
 
+        # DEBUG: Check if auto-sync is enabled
+        self.logger.info(f"ENABLE_AUTO_SYNC setting: {self.config.ENABLE_AUTO_SYNC}")
+
+        # Sync slash commands if enabled
+        if self.config.ENABLE_AUTO_SYNC:
+            self.logger.info("Starting slash command sync...")
+            try:
+                synced = await self.tree.sync()
+                self.logger.info(f"Successfully synced {len(synced)} slash commands")
+
+                # DEBUG: Show what commands were synced
+                for cmd in synced:
+                    self.logger.info(f"Synced command: {cmd.name}")
+
+            except Exception as e:
+                self.logger.error(f"Failed to sync slash commands: {e}")
+        else:
+            self.logger.info("Auto-sync is disabled, skipping slash command sync")
+
         # Set single status now that bot is connected
         if (self.config.ENABLE_STATUS_CYCLING and
-            self.config.STATUS_MESSAGES and
-            len(self.config.STATUS_MESSAGES) == 1):
+                self.config.STATUS_MESSAGES and
+                len(self.config.STATUS_MESSAGES) == 1):
             await self._set_single_status()
             self.logger.info("Single status set (cycling disabled)")
 

@@ -1,15 +1,11 @@
 """
 Permission Management Commands
-=============================
+===============================================
 
-Comprehensive permission management interface with:
-- Auto-configuration and role detection
-- Role permission mapping management
-- Command requirement customization
-- Interactive setup and review commands
-- Help and troubleshooting tools
+Updated to use hybrid commands for both slash and text command support.
 """
 
+import asyncio
 import discord
 from discord.ext import commands
 from discord import app_commands
@@ -47,6 +43,7 @@ class PermissionManagementCommands(commands.Cog):
             format_extra=True,
             discord_compat=True
         )
+        self.logger.info("Permission Manager cog initialized")
 
     @property
     def permission_manager(self) -> EnhancedPermissionManager:
@@ -55,74 +52,14 @@ class PermissionManagementCommands(commands.Cog):
             raise RuntimeError("Permission system not initialized")
         return self.bot.permission_manager
 
-    # // ========================================( Main Permission Group )======================================== // #
-
-    @commands.group(name="permissions", aliases=["perms", "perm"])
-    @commands.guild_only()
-    @require_level(PermissionLevel.ADMIN)
-    async def permissions(self, ctx: commands.Context) -> None:
-        """
-        Permission management commands for server administrators.
-
-        Use subcommands to configure bot permissions for your server.
-        """
-        if ctx.invoked_subcommand is None:
-            await self._show_main_help(ctx)
-
-    async def _show_main_help(self, ctx: commands.Context) -> None:
-        """Show main permissions help."""
-        embed = EmbedBuilder(
-            EmbedType.INFO,
-            "🔐 Permission Management",
-            "Configure bot permissions for your server"
-        )
-
-        # Available subcommands
-        embed.add_field(
-            name="🚀 Quick Setup",
-            value="`permissions setup` - Auto-configure role permissions\n"
-                  "`permissions list` - View current configuration",
-            inline=False
-        )
-
-        embed.add_field(
-            name="🎭 Role Management",
-            value="`permissions set-role <role> <level>` - Set role permission level\n"
-                  "`permissions roles` - List all role mappings",
-            inline=False
-        )
-
-        embed.add_field(
-            name="⚙️ Command Management",
-            value="`permissions set-command <command> <level>` - Set command requirement\n"
-                  "`permissions commands` - List all command requirements",
-            inline=False
-        )
-
-        embed.add_field(
-            name="🔍 Help & Troubleshooting",
-            value="`permissions help <@user>` - Analyze user permissions\n"
-                  "`permissions reset` - Reset to defaults",
-            inline=False
-        )
-
-        embed.add_field(
-            name="📊 Permission Levels",
-            value="**EVERYONE** (0) → **MEMBER** (10) → **MODERATOR** (50) → "
-                  "**LEAD_MOD** (65) → **ADMIN** (80) → **LEAD_ADMIN** (90) → **OWNER** (100)",
-            inline=False
-        )
-
-        embed.set_footer(
-            f"Requested by {ctx.author.display_name}",
-            icon_url=ctx.author.display_avatar.url
-        )
-
-        await ctx.send(embed=embed.build())
-
     # // ========================================( Setup Commands )======================================== // #
 
-    @permissions.command(name="setup")
+    @commands.hybrid_command(
+        name="permissions-setup",
+        description="Auto-configure role permissions based on Discord permissions and role names"
+    )
+    @commands.guild_only()
+    @require_level(PermissionLevel.ADMIN)
     async def setup_permissions(self, ctx: commands.Context) -> None:
         """
         Auto-configure role permissions based on Discord permissions and role names.
@@ -185,17 +122,17 @@ class PermissionManagementCommands(commands.Cog):
 
                 embed.add_field(
                     name="🔧 Manual Configuration",
-                    value="Use `permissions set-role @RoleName LEVEL` to configure these roles.\n"
-                          "Use `permissions help @user` to check specific user permissions.",
+                    value="Use `/permissions-set-role` to configure these roles.\n"
+                          "Use `/permissions-help` to check specific user permissions.",
                     inline=False
                 )
 
             # Next steps
             embed.add_field(
                 name="📋 What's Next?",
-                value="• Review the configuration with `permissions list`\n"
-                      "• Adjust specific roles with `permissions set-role`\n"
-                      "• Customize command requirements with `permissions set-command`",
+                value="• Review with `/permissions-list`\n"
+                      "• Adjust roles with `/permissions-set-role`\n"
+                      "• Customize commands with `/permissions-set-command`",
                 inline=False
             )
 
@@ -214,7 +151,12 @@ class PermissionManagementCommands(commands.Cog):
             )
             await message.edit(embed=error_embed)
 
-    @permissions.command(name="list", aliases=["show", "config"])
+    @commands.hybrid_command(
+        name="permissions-list",
+        description="Display the current permission configuration for this server"
+    )
+    @commands.guild_only()
+    @require_level(PermissionLevel.ADMIN)
     async def list_permissions(self, ctx: commands.Context) -> None:
         """
         Display the current permission configuration for this server.
@@ -249,7 +191,7 @@ class PermissionManagementCommands(commands.Cog):
         else:
             embed.add_field(
                 name="🎭 Role Mappings",
-                value="❌ No roles configured\nRun `permissions setup` to auto-configure roles.",
+                value="❌ No roles configured\nRun `/permissions-setup` to auto-configure roles.",
                 inline=False
             )
 
@@ -313,19 +255,24 @@ class PermissionManagementCommands(commands.Cog):
 
     # // ========================================( Role Management )======================================== // #
 
-    @permissions.command(name="set-role", aliases=["setrole", "role"])
+    @commands.hybrid_command(
+        name="permissions-set-role",
+        description="Set the permission level for a specific role"
+    )
+    @app_commands.describe(
+        role="The role to configure",
+        level="Permission level (EVERYONE, MEMBER, MODERATOR, LEAD_MOD, ADMIN, LEAD_ADMIN, OWNER)"
+    )
+    @commands.guild_only()
+    @require_level(PermissionLevel.ADMIN)
     async def set_role_permission(
-            self,
-            ctx: commands.Context,
-            role: discord.Role,
-            level: str
+        self,
+        ctx: commands.Context,
+        role: discord.Role,
+        level: str
     ) -> None:
         """
         Set the permission level for a specific role.
-
-        Args:
-            role: The role to configure
-            level: Permission level (EVERYONE, MEMBER, MODERATOR, LEAD_MOD, ADMIN, LEAD_ADMIN, OWNER)
         """
         # Validate permission level
         try:
@@ -385,79 +332,24 @@ class PermissionManagementCommands(commands.Cog):
 
         await ctx.send(embed=embed.build())
 
-    @permissions.command(name="roles")
-    async def list_roles(self, ctx: commands.Context) -> None:
-        """
-        List all role permission mappings for this server.
-        """
-        config = self.permission_manager.get_guild_config(ctx.guild.id)
-
-        embed = EmbedBuilder(
-            EmbedType.INFO,
-            f"🎭 Role Permissions - {ctx.guild.name}"
-        )
-
-        if not config.role_mappings:
-            embed.add_field(
-                name="❌ No Roles Configured",
-                value="Run `permissions setup` to auto-configure roles, or use "
-                      "`permissions set-role @Role LEVEL` to configure manually.",
-                inline=False
-            )
-        else:
-            # Group roles by permission level
-            roles_by_level = {}
-            for role_id, level in config.role_mappings.items():
-                if level not in roles_by_level:
-                    roles_by_level[level] = []
-
-                role = ctx.guild.get_role(role_id)
-                if role:
-                    roles_by_level[level].append(role.mention)
-                else:
-                    roles_by_level[level].append(f"Unknown Role ({role_id})")
-
-            # Display by level (highest first)
-            for level in sorted(roles_by_level.keys(), key=lambda x: x.value, reverse=True):
-                if level.value < 0:  # Skip BANNED level in normal display
-                    continue
-
-                role_list = roles_by_level[level]
-                embed.add_field(
-                    name=f"{level.name.title()} ({level.value})",
-                    value=", ".join(role_list[:5]) + (f" (+{len(role_list) - 5} more)" if len(role_list) > 5 else ""),
-                    inline=False
-                )
-
-        embed.add_field(
-            name="🔧 Management",
-            value="• `permissions set-role @Role LEVEL` - Update role permission\n"
-                  "• `permissions help @user` - Check user permissions",
-            inline=False
-        )
-
-        embed.set_footer(
-            f"Requested by {ctx.author.display_name}",
-            icon_url=ctx.author.display_avatar.url
-        )
-
-        await ctx.send(embed=embed.build())
-
-    # // ========================================( Command Management )======================================== // #
-
-    @permissions.command(name="set-command", aliases=["setcommand", "command"])
+    @commands.hybrid_command(
+        name="permissions-set-command",
+        description="Set the required permission level for a specific command"
+    )
+    @app_commands.describe(
+        command="Command name (e.g., 'warn', 'kick', 'ban')",
+        level="Required permission level"
+    )
+    @commands.guild_only()
+    @require_level(PermissionLevel.ADMIN)
     async def set_command_requirement(
-            self,
-            ctx: commands.Context,
-            command: str,
-            level: str
+        self,
+        ctx: commands.Context,
+        command: str,
+        level: str
     ) -> None:
         """
         Set the required permission level for a specific command.
-
-        Args:
-            command: Command name (e.g., 'warn', 'kick', 'ban')
-            level: Required permission level
         """
         # Validate permission level
         try:
@@ -563,98 +455,37 @@ class PermissionManagementCommands(commands.Cog):
         if eligible_roles:
             embed.add_field(
                 name="✅ Who Can Use This Command",
-                value=", ".join(eligible_roles[:5]) + (
-                    f" (+{len(eligible_roles) - 5} more)" if len(eligible_roles) > 5 else ""),
+                value=", ".join(eligible_roles[:5]) + (f" (+{len(eligible_roles)-5} more)" if len(eligible_roles) > 5 else ""),
                 inline=False
             )
         else:
             embed.add_field(
                 name="⚠️ Warning",
                 value="No roles are currently mapped to this permission level or higher!\n"
-                      "Consider using `permissions set-role` to grant access.",
+                      "Consider using `/permissions-set-role` to grant access.",
                 inline=False
             )
 
         await ctx.send(embed=embed.build())
 
-    @permissions.command(name="commands", aliases=["cmds"])
-    async def list_commands(self, ctx: commands.Context) -> None:
-        """
-        List all available commands and their permission requirements.
-        """
-        config = self.permission_manager.get_guild_config(ctx.guild.id)
+    # // ========================================( Help & Analysis )======================================== // #
 
-        embed = EmbedBuilder(
-            EmbedType.INFO,
-            "📋 Command Permission Requirements"
-        )
-
-        # Group commands by permission level
-        commands_by_level = {}
-        for node_name, node in self.permission_manager.nodes.items():
-            required_level = config.get_required_level(node_name, self.permission_manager.nodes)
-
-            if required_level not in commands_by_level:
-                commands_by_level[required_level] = []
-
-            command_name = node_name.split('.')[-1]
-
-            # Mark if customized
-            is_customized = node_name in config.node_overrides
-            marker = " ⚙️" if is_customized else ""
-
-            commands_by_level[required_level].append(f"`{command_name}`{marker}")
-
-        # Display by level
-        for level in sorted(commands_by_level.keys(), key=lambda x: x.value):
-            if level.value < 0:  # Skip BANNED level
-                continue
-
-            command_list = commands_by_level[level]
-            embed.add_field(
-                name=f"{level.name.title()} ({level.value})",
-                value=", ".join(command_list),
-                inline=False
-            )
-
-        embed.add_field(
-            name="Legend",
-            value="⚙️ = Custom requirement (not default)\n"
-                  "Use `permissions set-command <command> <level>` to customize",
-            inline=False
-        )
-
-        embed.set_footer(
-            f"Requested by {ctx.author.display_name}",
-            icon_url=ctx.author.display_avatar.url
-        )
-
-        await ctx.send(embed=embed.build())
-
-    # // ========================================( Help & Troubleshooting )======================================== // #
-
-    @permissions.command(name="help", aliases=["check", "analyze"])
+    @commands.hybrid_command(
+        name="permissions-help",
+        description="Analyze and display permission information for a specific user"
+    )
+    @app_commands.describe(user="User to analyze (defaults to yourself)")
+    @commands.guild_only()
+    @require_level(PermissionLevel.ADMIN)
     async def help_user(
-            self,
-            ctx: commands.Context,
-            user: Optional[Union[discord.Member, discord.User]] = None
+        self,
+        ctx: commands.Context,
+        user: Optional[discord.Member] = None
     ) -> None:
         """
         Analyze and display permission information for a specific user.
-
-        Args:
-            user: User to analyze (defaults to command author)
         """
         target_user = user or ctx.author
-
-        if not isinstance(target_user, discord.Member):
-            embed = create_warning_embed(
-                title="User Not in Server",
-                description="Cannot analyze permissions for users not in this server.",
-                user=ctx.author
-            )
-            await ctx.send(embed=embed)
-            return
 
         # Get user's permission level
         user_level = self.permission_manager.get_user_permission_level(target_user, ctx.guild)
@@ -676,7 +507,6 @@ class PermissionManagementCommands(commands.Cog):
         # Role analysis
         config = self.permission_manager.get_guild_config(ctx.guild.id)
         role_analysis = []
-        highest_role_level = PermissionLevel.EVERYONE
 
         for role in target_user.roles:
             if role.name == "@everyone":
@@ -685,8 +515,6 @@ class PermissionManagementCommands(commands.Cog):
             if role.id in config.role_mappings:
                 role_level = config.role_mappings[role.id]
                 role_analysis.append(f"• {role.mention} → {role_level.name.title()}")
-                if role_level > highest_role_level:
-                    highest_role_level = role_level
             else:
                 role_analysis.append(f"• {role.mention} → Not configured")
 
@@ -699,54 +527,21 @@ class PermissionManagementCommands(commands.Cog):
 
         # Available commands
         available_commands = []
-        restricted_commands = []
-
         for node_name, node in self.permission_manager.nodes.items():
+            config = self.permission_manager.get_guild_config(ctx.guild.id)
             required_level = config.get_required_level(node_name, self.permission_manager.nodes)
-            command_name = node_name.split('.')[-1]
 
             if user_level >= required_level:
+                command_name = node_name.split('.')[-1]
                 available_commands.append(command_name)
-            else:
-                restricted_commands.append(f"{command_name} (needs {required_level.name.title()})")
 
         if available_commands:
             embed.add_field(
                 name="✅ Available Commands",
                 value=", ".join([f"`{cmd}`" for cmd in available_commands[:10]]) +
-                      (f" (+{len(available_commands) - 10} more)" if len(available_commands) > 10 else ""),
+                      (f" (+{len(available_commands)-10} more)" if len(available_commands) > 10 else ""),
                 inline=False
             )
-
-        if restricted_commands:
-            embed.add_field(
-                name="❌ Restricted Commands (examples)",
-                value="\n".join([f"• `{cmd}`" for cmd in restricted_commands[:5]]),
-                inline=False
-            )
-
-        # Suggestions for improvement
-        if user_level < PermissionLevel.ADMIN:
-            suggestions = []
-
-            # Find roles that would give more permissions
-            better_roles = []
-            for role_id, role_level in config.role_mappings.items():
-                if role_level > user_level:
-                    role = ctx.guild.get_role(role_id)
-                    if role and role not in target_user.roles:
-                        better_roles.append(f"{role.mention} ({role_level.name.title()})")
-
-            if better_roles:
-                suggestions.append("**For more permissions, consider these roles:**\n" +
-                                   "\n".join([f"• {role}" for role in better_roles[:3]]))
-
-            if suggestions:
-                embed.add_field(
-                    name="💡 Suggestions",
-                    value="\n\n".join(suggestions),
-                    inline=False
-                )
 
         embed.set_thumbnail(target_user.display_avatar.url)
         embed.set_footer(
@@ -756,7 +551,12 @@ class PermissionManagementCommands(commands.Cog):
 
         await ctx.send(embed=embed.build())
 
-    @permissions.command(name="reset")
+    @commands.hybrid_command(
+        name="permissions-reset",
+        description="Reset the permission configuration to defaults"
+    )
+    @commands.guild_only()
+    @require_level(PermissionLevel.ADMIN)
     async def reset_config(self, ctx: commands.Context) -> None:
         """
         Reset the permission configuration to defaults.
@@ -779,7 +579,7 @@ class PermissionManagementCommands(commands.Cog):
 
         embed.add_field(
             name="💡 What to do after reset:",
-            value="Run `permissions setup` to reconfigure automatically",
+            value="Run `/permissions-setup` to reconfigure automatically",
             inline=False
         )
 
@@ -812,7 +612,7 @@ class PermissionManagementCommands(commands.Cog):
 
             success_embed.add_field(
                 name="Next Steps",
-                value="Run `permissions setup` to reconfigure your server permissions.",
+                value="Run `/permissions-setup` to reconfigure your server permissions.",
                 inline=False
             )
 
@@ -844,88 +644,9 @@ class PermissionManagementCommands(commands.Cog):
         }
         return descriptions.get(level, "❓ Unknown permission level")
 
-    # // ========================================( Example Commands )======================================== // #
-
-    @commands.hybrid_command(
-        name="userinfo",
-        description="Display detailed information about a user"
-    )
-    @require_permission("utility.userinfo")
-    async def userinfo(
-            self,
-            ctx: commands.Context,
-            user: discord.Member = None
-    ) -> None:
-        """
-        Display user information - demonstrates the enhanced permission system.
-
-        Args:
-            ctx: Command context
-            user: User to get info about (defaults to command author)
-        """
-        target = user or ctx.author
-
-        # Get user's permission level
-        user_level = self.permission_manager.get_user_permission_level(target, ctx.guild)
-
-        embed = EmbedBuilder(
-            EmbedType.INFO,
-            f"👤 User Information: {target.display_name}"
-        )
-
-        # Basic information
-        embed.add_field(
-            name="📝 Basic Info",
-            value=f"**Username:** {target}\n"
-                  f"**Display Name:** {target.display_name}\n"
-                  f"**ID:** `{target.id}`\n"
-                  f"**Bot:** {'Yes' if target.bot else 'No'}",
-            inline=True
-        )
-
-        # Dates
-        embed.add_field(
-            name="📅 Dates",
-            value=f"**Created:** <t:{int(target.created_at.timestamp())}:D>\n"
-                  f"**Joined:** <t:{int(target.joined_at.timestamp())}:D>",
-            inline=True
-        )
-
-        # Permission level
-        embed.add_field(
-            name="🔐 Permission Level",
-            value=f"**Level:** {user_level.name.title()}\n"
-                  f"**Value:** {user_level.value}",
-            inline=True
-        )
-
-        # Roles (top 10)
-        if target.roles[1:]:  # Exclude @everyone
-            roles = [role.mention for role in target.roles[1:][:10]]
-            role_text = ", ".join(roles)
-            if len(target.roles) > 11:
-                role_text += f" (+{len(target.roles) - 11} more)"
-            embed.add_field(
-                name=f"🎭 Roles ({len(target.roles) - 1})",
-                value=role_text,
-                inline=False
-            )
-
-        # Set avatar
-        embed.set_thumbnail(target.display_avatar.url)
-        embed.set_footer(
-            f"Requested by {ctx.author.display_name}",
-            icon_url=ctx.author.display_avatar.url
-        )
-
-        await ctx.send(embed=embed.build())
-
 
 async def setup(bot: commands.Bot) -> None:
     """
     Setup function to add the permission management commands cog to the bot.
-
-    Args:
-        bot: The bot instance
     """
     await bot.add_cog(PermissionManagementCommands(bot))
