@@ -1114,7 +1114,7 @@ def channel_only(*channel_ids: int) -> Callable:
 
 def setup_enhanced_permission_system(bot: commands.Bot) -> EnhancedPermissionManager:
     """
-    Set up the enhanced permission system for the bot.
+    Set up the permission manager for the bot application.
 
     Args:
         bot: The bot instance

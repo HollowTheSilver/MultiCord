@@ -7,6 +7,7 @@ defaults, contextual styling, and utility functions for common use cases.
 """
 
 import time
+import platform
 from datetime import datetime, timezone
 from typing import Optional, Union, List, Dict, Any
 from enum import Enum
@@ -434,7 +435,7 @@ def create_bot_info_embed(
         f"**Version:** {bot.config.BOT_VERSION}\n"
         f"**Uptime:** {uptime_str}\n"
         f"**Latency:** {round(bot.latency * 1000, 2)}ms\n"
-        f"**Python:** {bot.config.BOT_VERSION}",
+        f"**Python:** {platform.python_version()}",
         inline=True
     )
 

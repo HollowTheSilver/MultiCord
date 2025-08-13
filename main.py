@@ -7,7 +7,7 @@ configuration management, graceful shutdown, enhanced embeds, professional error
 and enterprise-grade permission system.
 
 Author: HollowTheSilver
-Version: 1.2.0 (Enhanced Permission System)
+Version: 1.2.1 (Enhanced Permission System)
 """
 
 # // ========================================( Modules )======================================== // #

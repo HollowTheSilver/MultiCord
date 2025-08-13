@@ -676,7 +676,7 @@ class EnhancedErrorHandler:
 
 def setup_enhanced_error_handling(bot: commands.Bot) -> EnhancedErrorHandler:
     """
-    Set up enhanced error handling for the bot.
+    Set up error handler for the bot application.
 
     Args:
         bot: The bot instance
