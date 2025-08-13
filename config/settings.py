@@ -22,7 +22,7 @@ class BotConfig:
 
     # Bot identification
     BOT_NAME: str = field(default_factory=lambda: os.getenv("BOT_NAME", "ProfessionalBot"))
-    BOT_VERSION: str = field(default_factory=lambda: os.getenv("BOT_VERSION", "1.1.0"))
+    BOT_VERSION: str = field(default_factory=lambda: os.getenv("BOT_VERSION", "1.2.0"))
     BOT_DESCRIPTION: str = field(default_factory=lambda: os.getenv("BOT_DESCRIPTION", "A professional Discord bot"))
 
     # Command settings
@@ -73,61 +73,17 @@ class BotConfig:
     API_RATE_LIMIT: int = field(default_factory=lambda: int(os.getenv("API_RATE_LIMIT", "100")))
     API_TIMEOUT: int = field(default_factory=lambda: int(os.getenv("API_TIMEOUT", "30")))
 
-    # // ========================================( Security )======================================== // #
+    # // ========================================( Permission System )======================================== // #
 
+    # Bot owner user IDs (highest permission level)
     OWNER_IDS: List[int] = field(default_factory=lambda: [
         int(id_str) for id_str in os.getenv("OWNER_IDS", "").split(",") if id_str.strip()
     ])
 
+    # Allowed guild IDs (if specified, bot only responds in these guilds)
     ALLOWED_GUILDS: List[int] = field(default_factory=lambda: [
         int(id_str) for id_str in os.getenv("ALLOWED_GUILDS", "").split(",") if id_str.strip()
     ])
-
-    # // ========================================( Permissions Configuration )======================================== // #  # NOQA
-
-    # Permission caching
-    PERMISSION_CACHE_TTL: int = field(
-        default_factory=lambda: int(os.getenv("PERMISSION_CACHE_TTL", "300")))  # 5 minutes
-    PERMISSION_CACHE_SIZE: int = field(default_factory=lambda: int(os.getenv("PERMISSION_CACHE_SIZE", "1000")))
-
-    # Permission system features
-    ENABLE_PERMISSION_AUDIT_LOG: bool = field(
-        default_factory=lambda: os.getenv("ENABLE_PERMISSION_AUDIT_LOG", "true").lower() == "true")
-    ENABLE_PERMISSION_OVERRIDES: bool = field(
-        default_factory=lambda: os.getenv("ENABLE_PERMISSION_OVERRIDES", "true").lower() == "true")
-    ENABLE_AUTO_ROLE_DETECTION: bool = field(
-        default_factory=lambda: os.getenv("ENABLE_AUTO_ROLE_DETECTION", "true").lower() == "true")
-
-    # Default permission mappings (role name -> permission level)
-    # Format: "role_name1:level1,role_name2:level2"
-    DEFAULT_ROLE_PERMISSIONS: str = field(default_factory=lambda: os.getenv("DEFAULT_ROLE_PERMISSIONS", ""))
-
-    # Permission debugging
-    PERMISSION_DEBUG_MODE: bool = field(
-        default_factory=lambda: os.getenv("PERMISSION_DEBUG_MODE", "false").lower() == "true")
-    LOG_PERMISSION_CHECKS: bool = field(
-        default_factory=lambda: os.getenv("LOG_PERMISSION_CHECKS", "false").lower() == "true")
-
-    # Add this method to the BotConfig class
-
-    def parse_default_role_permissions(self) -> Dict[str, str]:
-        """
-        Parse default role permissions from environment variable.
-
-        Returns:
-            Dictionary mapping role names to permission level names
-        """
-        permissions = {}
-        if self.DEFAULT_ROLE_PERMISSIONS:
-            try:
-                for mapping in self.DEFAULT_ROLE_PERMISSIONS.split(","):
-                    if ":" in mapping:
-                        role_name, level_name = mapping.split(":", 1)
-                        permissions[role_name.strip().lower()] = level_name.strip().upper()
-            except Exception:
-                pass  # Invalid format, ignore
-
-        return permissions
 
     # // ========================================( Feature Flags )======================================== // #
 
