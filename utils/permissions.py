@@ -78,7 +78,6 @@ class RoleType(Enum):
     INTEGRATION = "integration"  # Discord integrations (Nitro, Twitch, etc.)
     COSMETIC = "cosmetic"        # Color/display only, no meaningful permissions
     FUNCTIONAL = "functional"    # Channel-specific permissions only
-    REACTION = "reaction"        # Self-assignable reaction roles
     TEMPORARY = "temporary"      # Event/temporary roles
     UNKNOWN = "unknown"          # Couldn't classify confidently
 
@@ -221,11 +220,12 @@ class UnicodeTextNormalizer:
             normalized = re.sub(r'[\[\](){}〈〉《》「」『』〈〉【】]', ' ', normalized)
             normalized = re.sub(r'\s+', ' ', normalized).strip()
 
-            # Step 4: Convert to ASCII using unidecode (handles your Mathematical Bold Unicode)
+            # Step 4: Convert to ASCII using unidecode (handles Mathematical Bold Unicode)
             ascii_version = unidecode(normalized)
 
-            # Step 5: Final cleanup
-            ascii_version = re.sub(r'[^\w\s-]', '', ascii_version)  # Keep only alphanumeric, spaces, hyphens
+            # Step 5: Final cleanup BUT PRESERVE important punctuation for age ranges
+            # Keep +, -, numbers, letters, spaces, and some punctuation
+            ascii_version = re.sub(r'[^\w\s+\-]', '', ascii_version)  # Keep + and -
             ascii_version = re.sub(r'\s+', ' ', ascii_version).strip().lower()
 
             return ascii_version
@@ -233,19 +233,20 @@ class UnicodeTextNormalizer:
         except Exception as e:
             if self.logger:
                 self.logger.warning(f"Text normalization failed for '{text}': {e}")
-            # Fallback: basic cleanup
-            return re.sub(r'[^\w\s]', '', text).lower().strip()
+            # Fallback: basic cleanup but preserve + and -
+            return re.sub(r'[^\w\s+\-]', '', text).lower().strip()
 
 
 # Global normalizer instance
 _text_normalizer = UnicodeTextNormalizer()
+
 
 def normalize_discord_text(text: str) -> str:
     """Convenience function to normalize Discord text."""
     return _text_normalizer.normalize_text(text)
 
 
-# // ========================================( Intelligent Channel Analysis )======================================== // #
+# // =======================================( Intelligent Channel Analysis )======================================= // #
 
 
 class ChannelAnalysisStrategy:
@@ -402,7 +403,7 @@ class ChannelAnalysisStrategy:
         return any(indicator in normalized_name for indicator in temp_indicators)
 
 
-# // ========================================( Enhanced Role Classification System )======================================== // #
+# // ========================================( Role Classification System )======================================== // #
 
 
 class EnhancedRoleClassifier:
@@ -559,39 +560,59 @@ class EnhancedRoleClassifier:
         return analysis
 
     def _classify_role_type(self, role: discord.Role, guild: discord.Guild) -> RoleType:
-        """Intelligently classify role type using contextual patterns."""
+        """Intelligently classify role type using contextual patterns with permissions-first logic."""
 
-        # Bot roles (highest priority)
+        # PRIORITY 1: Bot roles (highest priority)
         if role.is_bot_managed():
             return RoleType.BOT
 
-        # Check role tags for integrations (be more specific)
+        # Check role tags for bots
         if hasattr(role, 'tags') and role.tags:
             if getattr(role.tags, 'bot_id', None):
                 return RoleType.BOT
+
+        # PRIORITY 2: Discord integrations (before other checks)
+        if hasattr(role, 'tags') and role.tags:
             # Only classify as integration if there's a specific integration ID or it's premium subscriber
             if (getattr(role.tags, 'integration_id', None) or
-                getattr(role.tags, 'premium_subscriber', None) == True):
+                    getattr(role.tags, 'premium_subscriber', None) == True):
                 if self.logger:
                     self.logger.info(f"Role '{role.name}' classified as INTEGRATION due to tags")
                 return RoleType.INTEGRATION
 
-        # Single-member roles analysis
-        if len(role.members) == 1:
-            member = role.members[0]
-            if member.bot:
-                return RoleType.BOT
-            # Single human member might be functional or temporary
-            if not self._has_authority_permissions(role):
-                return RoleType.FUNCTIONAL
-
         # Normalize name for pattern matching
         normalized_name = normalize_discord_text(role.name)
 
-        # PRIORITY: Check for verification/base authority roles first
-        if self._is_verification_role(role, guild):
+        # Check for Discord-specific integration patterns
+        integration_patterns = ['booster', 'boost', 'nitro', 'premium']
+        if any(pattern in normalized_name for pattern in integration_patterns):
             if self.logger:
-                self.logger.info(f"Role '{role.name}' classified as AUTHORITY due to verification pattern")
+                self.logger.info(f"Role '{role.name}' classified as INTEGRATION due to pattern")
+            return RoleType.INTEGRATION
+
+        # PRIORITY 3: Channel permission overrides = FUNCTIONAL (before name checks)
+        if self._has_any_channel_overrides(role, guild):
+            # SPECIAL CASE: Check if this is still an authority role despite channel overrides
+            authority_name_patterns = [
+                'admin', 'administrator', 'mod', 'moderator', 'owner', 'founder',
+                'staff', 'leader', 'manager', 'executive', 'director', 'member'  # Added 'member'
+            ]
+
+            # If it matches authority patterns OR has authority permissions, treat as authority
+            if (any(pattern in normalized_name for pattern in authority_name_patterns) or
+                    self._has_authority_permissions(role) or
+                    self._is_verification_role(role, guild)):
+                # This is an authority role that happens to have channel overrides
+                # Continue to authority classification below
+                pass
+            else:
+                # No authority indicators but has channel overrides = functional
+                return RoleType.FUNCTIONAL
+
+        # PRIORITY 4: Authority permissions and patterns
+        if self._has_authority_permissions(role):
+            if self.logger:
+                self.logger.info(f"Role '{role.name}' classified as AUTHORITY due to permissions")
             return RoleType.AUTHORITY
 
         # Check for staff/hierarchy authority patterns
@@ -604,83 +625,87 @@ class EnhancedRoleClassifier:
                 self.logger.info(f"Role '{role.name}' classified as AUTHORITY due to staff pattern")
             return RoleType.AUTHORITY
 
-        # Has authority permissions = likely authority hierarchy
-        if self._has_authority_permissions(role):
+        # Check for verification/base authority roles
+        if self._is_verification_role(role, guild):
             if self.logger:
-                self.logger.info(f"Role '{role.name}' classified as AUTHORITY due to permissions")
+                self.logger.info(f"Role '{role.name}' classified as AUTHORITY due to verification pattern")
             return RoleType.AUTHORITY
 
-        # ENHANCED: Demographic/self-assignment cosmetic patterns
-        # These are typically found in reaction role channels
-        demographic_patterns = [
-            # Age groups (common reaction role pattern)
-            r'\b\d{2}[+-]\b', r'\b\d{2}-\d{2}\b', r'\b\d{2}\+\b',
-            r'\bteen\b', r'\badult\b', r'\bsenior\b',
-
-            # Employment/life status (classic reaction roles)
-            r'\bemployed\b', r'\bunemployed\b', r'\bstudent\b', r'\bretired\b',
-            r'\bworking\b', r'\buniversity\b', r'\bcollege\b', r'\bhigh.*school\b',
-
-            # Demographics/identity (popular reaction categories)
-            r'\bmale\b', r'\bfemale\b', r'\bsingle\b', r'\bmarried\b', r'\btaken\b',
-
-            # Geographic/timezone (common server reaction roles)
-            r'\best\b', r'\bpst\b', r'\bcst\b', r'\bmst\b', r'\butc\b', r'\bgmt\b',
-            r'\busa\b', r'\bcanada\b', r'\beurope\b', r'\basia\b', r'\baest\b', r'\bjst\b',
-            r'\beet\b', r'\bcet\b', r'\bbrt\b',
-
-            # Personality/community types (trendy reaction roles)
-            r'\bedger\b', r'\bgooner\b', r'\bnormie\b', r'\bweeb\b', r'\bgamer\b',
-
-            # Community-specific identity
-            r'\basylee\b', r'\brefugee\b', r'\bimmigrant\b', r'\bnewbie\b', r'\bseeker\b',
-            r'\bdetainee\b', r'\bresident\b', r'\bnational\b'
-        ]
-
-        if any(re.search(pattern, normalized_name, re.IGNORECASE) for pattern in demographic_patterns):
-            return RoleType.COSMETIC
-
-        # Check if role has any channel permission overrides (makes it functional)
-        if self._has_any_channel_overrides(role, guild):
-            return RoleType.FUNCTIONAL
-
-        # No permissions at all = likely cosmetic (unless very few members)
-        if role.permissions.value == 0:
-            if len(role.members) > 5:  # Many members with no perms = cosmetic
+        # PRIORITY 5: Single-member analysis (for bots or special cases)
+        if len(role.members) == 1:
+            member = role.members[0]
+            if member.bot:
+                return RoleType.BOT
+            # Single human member with no authority permissions might be functional
+            if not self._has_authority_permissions(role) and not self._has_any_channel_overrides(role, guild):
+                # Single member, no special permissions = probably cosmetic/personal
                 return RoleType.COSMETIC
-            elif len(role.members) <= 2:  # Very few = might be functional/special
-                return RoleType.FUNCTIONAL
-            else:  # Medium count with no perms = probably reaction/cosmetic
-                return RoleType.REACTION
 
-        # Low-impact permissions analysis
-        if self._has_only_cosmetic_permissions(role):
-            if len(role.members) > 10:
+        # PRIORITY 6: No permissions + demographic patterns = COSMETIC
+        if role.permissions.value == 0 or self._has_only_cosmetic_permissions(role):
+            # Enhanced demographic/cosmetic patterns
+            demographic_patterns = [
+                # Age groups (common reaction role pattern)
+                r'\d{2}[+-]', r'\d{2}-\d{2}', r'\d{2}\+',
+                r'\bteen\b', r'\badult\b', r'\bsenior\b',
+
+                # Employment/life status (classic reaction roles)
+                r'\bemployed\b', r'\bunemployed\b', r'\bstudent\b', r'\bretired\b',
+                r'\bworking\b', r'\buniversity\b', r'\bcollege\b', r'\bhigh.*school\b',
+
+                # Demographics/identity (popular reaction categories)
+                r'\bmale\b', r'\bfemale\b', r'\bsingle\b', r'\bmarried\b', r'\btaken\b',
+
+                # Geographic/timezone (common server reaction roles)
+                r'\best\b', r'\bpst\b', r'\bcst\b', r'\bmst\b', r'\butc\b', r'\bgmt\b',
+                r'\busa\b', r'\bcanada\b', r'\beurope\b', r'\basia\b', r'\baest\b', r'\bjst\b',
+                r'\beet\b', r'\bcet\b', r'\bbrt\b',
+
+                # Personality/community types (trendy reaction roles)
+                r'\bedger\b', r'\bgooner\b', r'\bnormie\b', r'\bweeb\b', r'\bgamer\b',
+
+                # Community-specific identity
+                r'\basylee\b', r'\brefugee\b', r'\bimmigrant\b', r'\bnewbie\b', r'\bseeker\b',
+                r'\bdetainee\b', r'\bresident\b', r'\bnational\b',
+
+                # LGBTQ+ and identity terms
+                r'\btrans\b', r'\bgay\b', r'\blesbian\b', r'\bbi\b', r'\bqueer\b',
+
+                # Racial/ethnic descriptors (sometimes used in communities)
+                r'\bblack\b', r'\bwhite\b', r'\basian\b', r'\blatino\b', r'\bharkie\b', r'\bdarkie\b'
+            ]
+
+            if any(re.search(pattern, normalized_name, re.IGNORECASE) for pattern in demographic_patterns):
                 return RoleType.COSMETIC
-            else:
-                return RoleType.REACTION  # Might be self-assignable
 
-        # Team/color roles (classic cosmetic pattern)
+            # High member count with no/minimal permissions = cosmetic
+            if len(role.members) > 5:
+                return RoleType.COSMETIC
+
+        # PRIORITY 7: Team/color roles (classic cosmetic pattern)
         team_patterns = ['team', 'red', 'blue', 'green', 'yellow', 'purple', 'orange', 'squad']
         if any(pattern in normalized_name for pattern in team_patterns):
             return RoleType.COSMETIC
 
-        # Event/temporary roles
+        # PRIORITY 8: Event/temporary roles
         temp_patterns = ['event', 'contest', 'giveaway', 'temp', 'trial', 'beta', 'test']
         if any(pattern in normalized_name for pattern in temp_patterns):
             return RoleType.TEMPORARY
 
-        # Booster and Discord-specific functional roles
-        functional_patterns = ['booster', 'boost', 'nitro', 'premium', 'vip', 'donator', 'supporter']
-        if any(pattern in normalized_name for pattern in functional_patterns):
-            return RoleType.FUNCTIONAL
+        # PRIORITY 9: Emoji-only or decorative names (like @🎀🌸🎀)
+        # If role name is mostly/only emojis and symbols, it's likely cosmetic
+        emoji_and_symbol_count = sum(1 for char in role.name if not char.isalnum() and not char.isspace())
+        if emoji_and_symbol_count >= len(role.name) * 0.7:  # 70% or more non-alphanumeric
+            return RoleType.COSMETIC
 
-        # If we get here, log why it's unknown
+        # DEFAULT: If we get here, log why it's unknown
         if self.logger:
             self.logger.info(f"Role '{role.name}' classified as UNKNOWN - no clear pattern matched", extra={
                 "permissions_value": role.permissions.value,
                 "member_count": len(role.members),
-                "normalized_name": normalized_name
+                "normalized_name": normalized_name,
+                "has_channel_overrides": self._has_any_channel_overrides(role, guild),
+                "has_authority_perms": self._has_authority_permissions(role)
             })
 
         return RoleType.UNKNOWN

@@ -348,7 +348,7 @@ class PermissionManager(commands.Cog):
 
                 # If authority role, analyze category
                 if role_type == RoleType.AUTHORITY:
-                    analysis = self.permission_manager.role_classifier._analyze_single_role(role)
+                    analysis = self.permission_manager.role_classifier._analyze_single_role(role, ctx.guild)
                     category = analysis.category
                     authority_categories[category] = authority_categories.get(category, [])
                     authority_categories[category].append((role, analysis.confidence))
@@ -674,7 +674,7 @@ class PermissionManager(commands.Cog):
                 inline=False
             )
 
-        await ctx.send(embed=embed.build())
+        await ctx.send(embed=embed)
 
     @commands.hybrid_command(
         name="permissions-set-command",
@@ -810,7 +810,7 @@ class PermissionManager(commands.Cog):
                 inline=False
             )
 
-        await ctx.send(embed=embed.build())
+        await ctx.send(embed=embed)
 
     # // ========================================( Help & Analysis )======================================== // #
 
@@ -947,7 +947,7 @@ class PermissionManager(commands.Cog):
             inline=False
         )
 
-        message = await ctx.send(embed=embed.build())
+        message = await ctx.send(embed=embed)
         await message.add_reaction("✅")
 
         # Wait for confirmation
@@ -974,7 +974,7 @@ class PermissionManager(commands.Cog):
                 inline=False
             )
 
-            await message.edit(embed=success_embed.build())
+            await message.edit(embed=success_embed)
             await message.clear_reactions()
 
         except asyncio.TimeoutError:
@@ -983,7 +983,7 @@ class PermissionManager(commands.Cog):
                 description="Permission reset was cancelled (no confirmation received).",
                 user=ctx.author
             )
-            await message.edit(embed=timeout_embed.build())
+            await message.edit(embed=timeout_embed)
             await message.clear_reactions()
 
     # // ========================================( Utility Methods )======================================== // #
@@ -996,7 +996,6 @@ class PermissionManager(commands.Cog):
             RoleType.INTEGRATION: "🔗",
             RoleType.COSMETIC: "🎨",
             RoleType.FUNCTIONAL: "⚙️",
-            RoleType.REACTION: "📝",
             RoleType.TEMPORARY: "⏰",
             RoleType.UNKNOWN: "❓"
         }
