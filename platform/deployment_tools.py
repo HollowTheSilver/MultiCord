@@ -9,16 +9,19 @@ client onboarding, updates, and monitoring.
 import asyncio
 import argparse
 import sys
+import os
 import json
+import shutil
+import subprocess
 from pathlib import Path
 from typing import List, Dict, Any
-import subprocess
+from datetime import datetime
 
-# Add platform modules to path
-sys.path.insert(0, str(Path(__file__).parent))
+# Add project root to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from client_manager import ClientManager
-from launcher import PlatformLauncher
+from platform.client_manager import ClientManager
+from platform.launcher import PlatformLauncher
 
 
 class DeploymentManager:
@@ -62,319 +65,233 @@ class DeploymentManager:
 
     async def backup_all_clients(self) -> bool:
         """Create backups of all client data."""
-        self.logger.info("Creating backups for all clients...")
-
         try:
-            backup_dir = Path("backups") / f"backup_{int(asyncio.get_event_loop().time())}"
+            backup_dir = Path("backups") / datetime.now().strftime("%Y%m%d_%H%M%S")
             backup_dir.mkdir(parents=True, exist_ok=True)
 
-            clients = self.client_manager.list_clients()
+            # Backup client configurations
+            clients_dir = Path("clients")
+            if clients_dir.exists():
+                shutil.copytree(clients_dir, backup_dir / "clients")
 
-            for client in clients:
-                client_backup_dir = backup_dir / client.client_id
-                client_backup_dir.mkdir(exist_ok=True)
+            # Backup platform configuration
+            platform_config = Path("platform_config.json")
+            if platform_config.exists():
+                shutil.copy2(platform_config, backup_dir)
 
-                client_dir = Path("clients") / client.client_id
-                if client_dir.exists():
-                    # Copy data directory
-                    data_dir = client_dir / "data"
-                    if data_dir.exists():
-                        subprocess.run([
-                            "cp", "-r", str(data_dir), str(client_backup_dir)
-                        ], check=True)
+            # Backup platform logs
+            platform_logs = Path("platform/logs")
+            if platform_logs.exists():
+                shutil.copytree(platform_logs, backup_dir / "platform_logs")
 
-                    # Copy configuration
-                    for config_file in [".env", "config.py", "branding.py", "features.py"]:
-                        config_path = client_dir / config_file
-                        if config_path.exists():
-                            subprocess.run([
-                                "cp", str(config_path), str(client_backup_dir)
-                            ], check=True)
-
-            self.logger.info(f"Backup completed: {backup_dir}")
+            self.logger.info(f"Backup created: {backup_dir}")
             return True
 
         except Exception as e:
             self.logger.error(f"Backup failed: {e}")
             return False
 
-    async def migrate_all_clients(self) -> bool:
-        """Run database migrations for all clients."""
-        self.logger.info("Running migrations for all clients...")
 
-        try:
-            clients = self.client_manager.list_clients()
+class PlatformStats:
+    """Handles platform statistics and monitoring."""
 
-            for client in clients:
-                client_dir = Path("clients") / client.client_id
-                db_path = client_dir / "data" / "permissions.db"
+    def __init__(self):
+        self.launcher = PlatformLauncher()
+        self.client_manager = ClientManager()
 
-                if db_path.exists():
-                    # Run migration logic here
-                    self.logger.info(f"Migrated database for {client.client_id}")
+    async def show_platform_status(self) -> None:
+        """Display comprehensive platform status."""
+        print("📊 Multi-Client Platform Status")
+        print("=" * 50)
 
-            return True
+        stats = self.launcher.get_platform_stats()
+        platform_stats = stats["platform"]
 
-        except Exception as e:
-            self.logger.error(f"Migration failed: {e}")
-            return False
+        print(f"🕐 Platform Uptime: {platform_stats['uptime_hours']:.1f} hours")
+        print(f"🔄 Total Restarts: {platform_stats['total_restarts']}")
+        print(f"📊 Total Clients: {platform_stats['total_clients']}")
+        print(f"✅ Enabled Clients: {platform_stats['enabled_clients']}")
+        print(f"🟢 Running Clients: {platform_stats['running_clients']}")
+        print()
+
+        if stats["clients"]:
+            print("Client Status:")
+            print("-" * 50)
+            for client_id, client_stats in stats["clients"].items():
+                status_icon = "🟢" if client_stats["running"] else "🔴"
+                enabled_icon = "✅" if client_stats["enabled"] else "❌"
+
+                print(f"{status_icon} {client_id} (Enabled: {enabled_icon})")
+
+                if client_stats["running"]:
+                    uptime_hours = client_stats["uptime_seconds"] / 3600
+                    print(f"  ⏱️  Uptime: {uptime_hours:.1f} hours")
+                    print(f"  💾 Memory: {client_stats['memory_mb']:.1f} MB")
+                    print(f"  ⚡ CPU: {client_stats['cpu_percent']:.1f}%")
+                    print(f"  🔄 Restarts: {client_stats['restart_count']}")
+                print()
+        else:
+            print("❌ No clients configured")
+
+    def list_clients(self) -> None:
+        """List all clients with basic info."""
+        print("📋 Client List")
+        print("=" * 30)
+
+        if not self.client_manager.clients:
+            print("❌ No clients found")
+            return
+
+        for client_id, client_info in self.client_manager.clients.items():
+            status = "🟢 Active" if client_info.status == "active" else "🔴 Inactive"
+            print(f"{status} {client_id}")
+            print(f"  📝 Name: {client_info.display_name}")
+            print(f"  📅 Created: {client_info.created_at.strftime('%Y-%m-%d')}")
+            print(f"  💰 Plan: {client_info.plan.title()}")
+            print(f"  🏷️  Monthly Fee: ${client_info.monthly_fee}")
+            print()
 
 
 class ClientOnboardingTool:
-    """Interactive tool for onboarding new clients."""
+    """Interactive client onboarding tool."""
 
     def __init__(self):
         self.client_manager = ClientManager()
 
     def interactive_onboarding(self) -> bool:
-        """Interactive client onboarding process."""
-        print("\n🚀 Multi-Client Discord Bot Platform")
-        print("=====================================")
-        print("New Client Onboarding\n")
+        """Run interactive client onboarding process."""
+        print("🆕 Multi-Client Platform - New Client Onboarding")
+        print("=" * 55)
 
         try:
-            # Collect basic information
-            client_id = self._get_client_id()
-            display_name = self._get_display_name()
-            discord_token = self._get_discord_token()
-            owner_id = self._get_owner_id()
-            guild_ids = self._get_guild_ids()
-            plan = self._get_plan()
-            monthly_fee = self._get_monthly_fee(plan)
-            branding = self._get_branding_info()
-
-            # Confirm details
-            print("\n📋 Client Details Summary:")
-            print(f"   Client ID: {client_id}")
-            print(f"   Display Name: {display_name}")
-            print(f"   Plan: {plan}")
-            print(f"   Monthly Fee: ${monthly_fee}")
-            print(f"   Owner ID: {owner_id}")
-            print(f"   Guild IDs: {guild_ids}")
-            print(f"   Bot Name: {branding.get('bot_name', 'N/A')}")
-
-            confirm = input("\n✅ Create this client? (yes/no): ").lower().strip()
-            if confirm not in ['yes', 'y']:
-                print("❌ Client creation cancelled.")
+            # Collect client information
+            client_data = self._collect_client_info()
+            if not client_data:
                 return False
 
             # Create the client
-            print("\n🔧 Creating client configuration...")
-            success = self.client_manager.create_client(
-                client_id=client_id,
-                display_name=display_name,
-                discord_token=discord_token,
-                owner_id=owner_id,
-                guild_ids=guild_ids,
-                plan=plan,
-                monthly_fee=monthly_fee,
-                branding=branding
-            )
+            success = self.client_manager.create_client(**client_data)
 
             if success:
-                print(f"\n✅ Client '{client_id}' created successfully!")
-                print(f"📁 Configuration directory: clients/{client_id}")
-                print(f"🤖 Bot is ready to start with: python -m platform.client_runner --client-id {client_id}")
-                print(f"🚀 Or start all bots with: python platform_main.py")
+                print(f"\n✅ Client '{client_data['client_id']}' created successfully!")
+                print("\n📋 Next Steps:")
+                print(f"1. Edit clients/{client_data['client_id']}/.env with your Discord token")
+                print(f"2. Customize clients/{client_data['client_id']}/branding.py if needed")
+                print(f"3. Test: python platform_main.py --client {client_data['client_id']}")
                 return True
             else:
-                print("\n❌ Failed to create client. Check logs for details.")
+                print("❌ Failed to create client")
                 return False
 
         except KeyboardInterrupt:
-            print("\n❌ Client creation cancelled by user.")
+            print("\n❌ Onboarding cancelled")
             return False
         except Exception as e:
-            print(f"\n❌ Error during onboarding: {e}")
+            print(f"❌ Error during onboarding: {e}")
             return False
 
-    def _get_client_id(self) -> str:
-        """Get and validate client ID."""
-        while True:
-            client_id = input("Client ID (alphanumeric + underscores): ").strip()
+    def _collect_client_info(self) -> Dict[str, Any]:
+        """Collect client information interactively."""
+        print("Please provide the following information:\n")
 
+        # Client ID
+        while True:
+            client_id = input("Client ID (lowercase, no spaces): ").strip().lower()
             if not client_id:
-                print("❌ Client ID cannot be empty.")
+                print("❌ Client ID is required")
                 continue
-
-            if not client_id.replace('_', '').replace('-', '').isalnum():
-                print("❌ Client ID must be alphanumeric with underscores/hyphens only.")
-                continue
-
             if client_id in self.client_manager.clients:
-                print("❌ Client ID already exists.")
+                print(f"❌ Client '{client_id}' already exists")
                 continue
+            if not client_id.replace('_', '').replace('-', '').isalnum():
+                print("❌ Client ID must contain only letters, numbers, hyphens, and underscores")
+                continue
+            break
 
-            return client_id.lower()
+        # Display name
+        display_name = input("Display Name: ").strip()
+        if not display_name:
+            display_name = client_id.title()
 
-    def _get_display_name(self) -> str:
-        """Get display name."""
-        while True:
-            name = input("Display Name (e.g., 'Acme Corporation'): ").strip()
-            if name:
-                return name
-            print("❌ Display name cannot be empty.")
+        # Discord token
+        discord_token = input("Discord Bot Token: ").strip()
+        if not discord_token:
+            print("❌ Discord token is required")
+            return {}
 
-    def _get_discord_token(self) -> str:
-        """Get Discord bot token."""
-        while True:
-            token = input("Discord Bot Token: ").strip()
-            if token and len(token) > 50:  # Basic validation
-                return token
-            print("❌ Please enter a valid Discord bot token.")
-
-    def _get_owner_id(self) -> int:
-        """Get Discord owner user ID."""
+        # Owner ID
         while True:
             try:
-                owner_id = int(input("Discord Owner User ID: ").strip())
-                if owner_id > 0:
-                    return owner_id
-                print("❌ User ID must be a positive number.")
+                owner_id = int(input("Owner Discord User ID: ").strip())
+                break
             except ValueError:
-                print("❌ Please enter a valid Discord user ID (numeric).")
+                print("❌ Please enter a valid Discord user ID (numbers only)")
 
-    def _get_guild_ids(self) -> List[int]:
-        """Get Discord guild IDs."""
-        print("Discord Guild IDs (comma-separated, or press Enter for none):")
-        guild_input = input("Guild IDs: ").strip()
+        # Guild IDs (optional)
+        guild_ids_input = input("Allowed Guild IDs (comma-separated, optional): ").strip()
+        guild_ids = []
+        if guild_ids_input:
+            try:
+                guild_ids = [int(gid.strip()) for gid in guild_ids_input.split(',')]
+            except ValueError:
+                print("⚠️  Invalid guild IDs, proceeding without restrictions")
+                guild_ids = []
 
-        if not guild_input:
-            return []
-
-        try:
-            guild_ids = [int(gid.strip()) for gid in guild_input.split(',') if gid.strip()]
-            return guild_ids
-        except ValueError:
-            print("❌ Invalid guild IDs. Using no restrictions.")
-            return []
-
-    def _get_plan(self) -> str:
-        """Get service plan."""
-        print("\n📦 Available Plans:")
-        print("   1. Basic ($200/month) - Core features")
-        print("   2. Premium ($350/month) - Advanced features")
-        print("   3. Enterprise ($500/month) - Full features + API access")
+        # Service plan
+        print("\nService Plans:")
+        print("1. Basic ($200/month)")
+        print("2. Premium ($350/month)")
+        print("3. Enterprise ($500/month)")
 
         while True:
-            choice = input("Select plan (1-3): ").strip()
-            if choice == '1':
-                return 'basic'
-            elif choice == '2':
-                return 'premium'
-            elif choice == '3':
-                return 'enterprise'
-            print("❌ Please select 1, 2, or 3.")
+            try:
+                plan_choice = int(input("Select plan (1-3): "))
+                if plan_choice == 1:
+                    plan = "basic"
+                    monthly_fee = 200.0
+                    break
+                elif plan_choice == 2:
+                    plan = "premium"
+                    monthly_fee = 350.0
+                    break
+                elif plan_choice == 3:
+                    plan = "enterprise"
+                    monthly_fee = 500.0
+                    break
+                else:
+                    print("❌ Please select 1, 2, or 3")
+            except ValueError:
+                print("❌ Please enter a number")
 
-    def _get_monthly_fee(self, plan: str) -> float:
-        """Get monthly fee based on plan."""
-        default_fees = {'basic': 200.0, 'premium': 350.0, 'enterprise': 500.0}
-        default_fee = default_fees.get(plan, 200.0)
-
-        fee_input = input(f"Monthly Fee (default ${default_fee}): ").strip()
-        if not fee_input:
-            return default_fee
-
-        try:
-            return float(fee_input)
-        except ValueError:
-            return default_fee
-
-    def _get_branding_info(self) -> Dict[str, Any]:
-        """Get branding information."""
-        print("\n🎨 Branding Configuration (optional):")
-
-        bot_name = input("Bot Name (e.g., 'AcmeBot'): ").strip()
+        # Custom branding
+        bot_name = input(f"Bot Name (default: {display_name} Bot): ").strip()
         if not bot_name:
-            bot_name = "Professional Bot"
+            bot_name = f"{display_name} Bot"
 
-        bot_description = input("Bot Description: ").strip()
+        bot_description = input("Bot Description (optional): ").strip()
         if not bot_description:
-            bot_description = f"Professional Discord bot for {bot_name}"
+            bot_description = f"Discord bot for {display_name}"
 
-        status_message = input("Status Message (e.g., '🤖 Serving Acme Corp'): ").strip()
+        status_message = input("Custom Status Message (optional): ").strip()
         if not status_message:
-            status_message = f"🤖 Serving {bot_name}"
+            status_message = f"Serving {display_name}"
 
         return {
+            "client_id": client_id,
+            "display_name": display_name,
+            "discord_token": discord_token,
+            "owner_id": owner_id,
+            "guild_ids": guild_ids,
+            "plan": plan,
+            "monthly_fee": monthly_fee,
             "bot_name": bot_name,
             "bot_description": bot_description,
             "status_message": status_message
         }
 
 
-class PlatformStats:
-    """Platform statistics and monitoring."""
-
-    def __init__(self):
-        self.client_manager = ClientManager()
-
-    async def show_platform_status(self):
-        """Display comprehensive platform status."""
-        print("\n🤖 Discord Bot Platform Status")
-        print("=" * 40)
-
-        # Client statistics
-        clients = self.client_manager.list_clients()
-        active_clients = [c for c in clients if c.status == "active"]
-
-        print(f"📊 Clients: {len(active_clients)}/{len(clients)} active")
-
-        # Plan breakdown
-        plans = {}
-        for client in active_clients:
-            plans[client.plan] = plans.get(client.plan, 0) + 1
-
-        print("📦 Plans:")
-        for plan, count in plans.items():
-            print(f"   {plan.title()}: {count}")
-
-        # Revenue
-        billing = self.client_manager.get_billing_summary()
-        print(f"💰 Monthly Revenue: ${billing['total_monthly_revenue']}")
-
-        # Try to get runtime status
-        try:
-            launcher = PlatformLauncher()
-            status = launcher.get_platform_status()
-
-            print(f"\n🚀 Runtime Status:")
-            print(f"   Running: {status['clients']['running']}")
-            print(f"   Memory: {status['resources']['total_memory_mb']:.1f} MB")
-            print(f"   CPU: {status['resources']['avg_cpu_percent']:.1f}%")
-
-            if status['client_details']:
-                print("\n🤖 Client Status:")
-                for client_id, details in status['client_details'].items():
-                    uptime_hours = details['uptime_seconds'] / 3600
-                    print(f"   {client_id}: {details['status']} ({uptime_hours:.1f}h)")
-
-        except Exception as e:
-            print(f"⚠️  Could not get runtime status: {e}")
-
-    def list_clients(self):
-        """List all clients with details."""
-        clients = self.client_manager.list_clients()
-
-        if not clients:
-            print("No clients found.")
-            return
-
-        print(f"\n📋 Client List ({len(clients)} total)")
-        print("=" * 60)
-
-        for client in sorted(clients, key=lambda c: c.created_at):
-            print(f"\n🏢 {client.display_name} ({client.client_id})")
-            print(f"   Plan: {client.plan.title()} (${client.monthly_fee}/month)")
-            print(f"   Status: {client.status}")
-            print(f"   Created: {client.created_at.strftime('%Y-%m-%d')}")
-            print(f"   Guilds: {len(client.guild_ids)} configured")
-            if client.notes:
-                print(f"   Notes: {client.notes}")
-
-
 def main():
-    """Main CLI interface."""
+    """Main deployment tools entry point."""
     parser = argparse.ArgumentParser(description="Multi-Client Discord Bot Platform Tools")
     subparsers = parser.add_subparsers(dest='command', help='Available commands')
 

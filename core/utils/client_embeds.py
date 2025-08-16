@@ -17,9 +17,7 @@ from .embeds import (
 
 
 class ClientEmbedBuilder(EmbedBuilder):
-    """
-    Enhanced embed builder with client-specific branding support.
-    """
+    """Enhanced embed builder with client-specific branding support."""
 
     def __init__(
             self,
@@ -191,70 +189,56 @@ def create_client_bot_info_embed(
         user: Optional[Union[discord.User, discord.Member]] = None
 ) -> discord.Embed:
     """Create a comprehensive bot info embed with client branding."""
-    uptime_seconds = getattr(bot, 'uptime_seconds', 0)
-
-    # Get branded bot name and description
-    bot_name = bot.get_branded_bot_name() if hasattr(bot, 'get_branded_bot_name') else bot.config.BOT_NAME
-    bot_description = bot.client_branding.get('bot_description', bot.config.BOT_DESCRIPTION) if hasattr(bot,
-                                                                                                        'client_branding') else bot.config.BOT_DESCRIPTION
+    bot_name = bot.get_branded_bot_name() if hasattr(bot, 'get_branded_bot_name') else str(bot.user)
 
     builder = ClientEmbedBuilder(
         bot,
         EmbedType.INFO,
-        f"🤖 {bot_name}",
-        bot_description
+        f"About {bot_name}",
+        f"Multi-client Discord bot platform"
     )
 
-    # Get bot statistics
+    # Bot stats
     stats = bot.get_stats() if hasattr(bot, 'get_stats') else {}
 
-    # Basic stats
     builder.add_field(
-        name="📊 Statistics",
-        value=f"**Guilds:** {stats.get('guilds', 0):,}\n"
-              f"**Users:** {stats.get('users', 0):,}\n"
-              f"**Commands:** {stats.get('commands', 0):,}\n"
-              f"**Cogs:** {stats.get('cogs', 0):,}",
+        "📊 Statistics",
+        f"Servers: {stats.get('guilds', 0)}\n"
+        f"Users: {stats.get('users', 0):,}\n"
+        f"Commands: {stats.get('commands', 0)}",
         inline=True
     )
 
-    # Format uptime
-    days, remainder = divmod(int(uptime_seconds), 86400)
-    hours, remainder = divmod(remainder, 3600)
-    minutes, seconds = divmod(remainder, 60)
-
-    uptime_parts = []
-    if days: uptime_parts.append(f"{days}d")
-    if hours: uptime_parts.append(f"{hours}h")
-    if minutes: uptime_parts.append(f"{minutes}m")
-    if seconds or not uptime_parts: uptime_parts.append(f"{seconds}s")
-    uptime_str = " ".join(uptime_parts)
-
-    # Technical information
     builder.add_field(
-        name="⚙️ Technical",
-        value=f"**Version:** {bot.config.BOT_VERSION}\n"
-              f"**Uptime:** {uptime_str}\n"
-              f"**Latency:** {round(bot.latency * 1000, 2)}ms\n"
-              f"**Client ID:** {getattr(bot, 'client_id', 'Unknown')}",
+        "⚡ Performance",
+        f"Latency: {stats.get('latency', 0)}ms\n"
+        f"Uptime: {'Unknown' if not hasattr(bot, '_start_time') else 'Online'}",
         inline=True
     )
 
-    # Add client-specific features if available
-    if hasattr(bot, 'client_features') and bot.client_features:
-        enabled_features = [name for name, enabled in bot.client_features.items() if enabled]
+    # Client-specific features
+    if hasattr(bot, 'client_features'):
+        enabled_features = [k for k, v in bot.client_features.items() if v]
         if enabled_features:
+            features_text = ", ".join(enabled_features[:5])
+            if len(enabled_features) > 5:
+                features_text += f" +{len(enabled_features) - 5} more"
+
             builder.add_field(
-                name="✨ Enabled Features",
-                value="\n".join([f"• {feature.replace('_', ' ').title()}" for feature in enabled_features[:8]]),
+                "🛠️ Features",
+                features_text,
                 inline=False
             )
 
-    # Add bot avatar
-    if bot.user and bot.user.avatar:
-        builder.set_thumbnail(bot.user.avatar.url)
+    # Client branding info
+    if hasattr(bot, 'client_id'):
+        builder.add_field(
+            "🏷️ Client Info",
+            f"Client ID: {bot.client_id}\n"
+            f"Platform: Multi-Client Bot",
+            inline=True
+        )
 
-    # Add user footer
     if user:
         builder.set_footer_with_branding(
             f"Requested by {user.display_name}",

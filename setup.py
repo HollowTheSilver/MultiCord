@@ -5,6 +5,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+
 def main():
     print("🔧 Setting up Multi-Client Discord Bot Platform")
     print("=" * 48)
@@ -25,6 +26,7 @@ def main():
     print("1. Copy platform code from artifacts into platform/ files")
     print("2. Update clients/default/.env with your Discord token")
     print("3. Run 'python platform_main.py --client default' to test")
+
 
 if __name__ == "__main__":
     main()

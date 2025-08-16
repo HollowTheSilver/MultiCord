@@ -29,6 +29,16 @@ from .embeds import (
     EmbedType
 )
 
+# Client-specific embed utilities
+from .client_embeds import (
+    create_client_success_embed,
+    create_client_error_embed,
+    create_client_info_embed,
+    create_client_warning_embed,
+    create_client_bot_info_embed,
+    ClientEmbedBuilder
+)
+
 # Permission system
 from .permission_models import (
     PermissionLevel,
@@ -36,12 +46,11 @@ from .permission_models import (
     PermissionScope,
     RoleCategory,
     ChannelType,
-    GuildPermissionConfig,  # NOT GuildConfig
+    GuildPermissionConfig,
     PermissionNode,
     PermissionOverride,
     PermissionAuditEntry,
     RoleAnalysis
-    # CommandPermission does NOT exist
 )
 
 from .permissions import (
@@ -97,13 +106,21 @@ __all__ = [
     "EmbedBuilder",
     "EmbedType",
 
+    # Client embeds
+    "create_client_success_embed",
+    "create_client_error_embed",
+    "create_client_info_embed",
+    "create_client_warning_embed",
+    "create_client_bot_info_embed",
+    "ClientEmbedBuilder",
+
     # Permissions
     "PermissionLevel",
     "RoleType",
     "PermissionScope",
     "RoleCategory",
     "ChannelType",
-    "GuildPermissionConfig",  # Corrected name
+    "GuildPermissionConfig",
     "PermissionNode",
     "PermissionOverride",
     "PermissionAuditEntry",

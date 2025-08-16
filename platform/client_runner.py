@@ -14,18 +14,16 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 import importlib.util
 
-# Add core modules to path
-sys.path.insert(0, str(Path(__file__).parent.parent / "core"))
+# Add project root to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from dotenv import load_dotenv
 from core.application import Application
-from config.settings import BotConfig
+from core.config.settings import BotConfig
 
 
 class ClientRunner:
-    """
-    Runner for individual client bot instances with custom configuration.
-    """
+    """Runner for individual client bot instances with custom configuration."""
 
     def __init__(self, client_id: str):
         """Initialize client runner."""
@@ -209,9 +207,7 @@ class ClientRunner:
 
 
 class ClientApplication(Application):
-    """
-    Enhanced Application class with client-specific functionality.
-    """
+    """Enhanced Application class with client-specific functionality."""
 
     def __init__(self, config: Optional[BotConfig] = None, client_id: str = None,
                  client_branding: Dict[str, Any] = None, client_features: Dict[str, Any] = None):
@@ -276,7 +272,7 @@ class ClientApplication(Application):
 
 def main():
     """Main entry point for client runner."""
-    parser = argparse.ArgumentParser(description="Run a specific Discord bot client")
+    parser = argparse.ArgumentParser(description="Discord Bot Client Runner")
     parser.add_argument("--client-id", required=True, help="Client ID to run")
 
     args = parser.parse_args()
@@ -284,13 +280,11 @@ def main():
     try:
         runner = ClientRunner(args.client_id)
         asyncio.run(runner.run())
-
-    except KeyboardInterrupt:
-        print(f"Client {args.client_id} stopped by user")
     except Exception as e:
-        print(f"Client {args.client_id} failed: {e}")
+        print(f"Failed to start client {args.client_id}: {e}")
         sys.exit(1)
 
 
 if __name__ == "__main__":
     main()
+    

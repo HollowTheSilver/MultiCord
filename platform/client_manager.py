@@ -7,6 +7,7 @@ client configurations across the platform.
 """
 
 import os
+import sys
 import json
 import shutil
 from pathlib import Path
@@ -14,7 +15,10 @@ from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from utils.loguruConfig import configure_logger
+# Add project root to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from core.utils.loguruConfig import configure_logger
 
 
 @dataclass
@@ -41,9 +45,7 @@ class ClientInfo:
 
 
 class ClientManager:
-    """
-    Manages client onboarding, configuration, and maintenance.
-    """
+    """Manages client onboarding, configuration, and maintenance."""
 
     def __init__(self):
         """Initialize client manager."""
@@ -91,25 +93,26 @@ class ClientManager:
     def _save_clients_db(self) -> None:
         """Save clients database."""
         try:
-            data = {
-                "clients": [
-                    {
-                        "client_id": client.client_id,
-                        "display_name": client.display_name,
-                        "created_at": client.created_at.isoformat(),
-                        "discord_token": client.discord_token,
-                        "owner_id": client.owner_id,
-                        "guild_ids": client.guild_ids,
-                        "plan": client.plan,
-                        "status": client.status,
-                        "monthly_fee": client.monthly_fee,
-                        "custom_features": client.custom_features,
-                        "branding": client.branding,
-                        "notes": client.notes
-                    }
-                    for client in self.clients.values()
-                ]
-            }
+            # Convert datetime objects to ISO format strings
+            clients_data = []
+            for client_info in self.clients.values():
+                client_dict = {
+                    "client_id": client_info.client_id,
+                    "display_name": client_info.display_name,
+                    "created_at": client_info.created_at.isoformat(),
+                    "discord_token": client_info.discord_token,
+                    "owner_id": client_info.owner_id,
+                    "guild_ids": client_info.guild_ids,
+                    "plan": client_info.plan,
+                    "status": client_info.status,
+                    "monthly_fee": client_info.monthly_fee,
+                    "custom_features": client_info.custom_features,
+                    "branding": client_info.branding,
+                    "notes": client_info.notes
+                }
+                clients_data.append(client_dict)
+
+            data = {"clients": clients_data}
 
             with open(self.clients_db, 'w') as f:
                 json.dump(data, f, indent=2)
@@ -117,17 +120,20 @@ class ClientManager:
         except Exception as e:
             self.logger.error(f"Failed to save clients database: {e}")
 
-    def create_client(self,
-                     client_id: str,
-                     display_name: str,
-                     discord_token: str,
-                     owner_id: int,
-                     guild_ids: List[int],
-                     plan: str = "basic",
-                     monthly_fee: float = 200.0,
-                     branding: Dict[str, Any] = None) -> bool:
+    def create_client(
+        self,
+        client_id: str,
+        display_name: str,
+        discord_token: str,
+        owner_id: int,
+        guild_ids: List[int],
+        plan: str = "basic",
+        monthly_fee: float = 200.0,
+        branding: Optional[Dict[str, Any]] = None,
+        **kwargs
+    ) -> bool:
         """
-        Create a new client with full configuration.
+        Create a new client with all necessary configuration files.
 
         Args:
             client_id: Unique identifier for the client
@@ -162,9 +168,9 @@ class ClientManager:
                 shutil.copytree(self.template_dir, client_dir)
 
             # Configure client files
-            self._configure_client_env(client_dir, client_id, discord_token, owner_id, guild_ids)
+            self._configure_client_env(client_dir, client_id, discord_token, owner_id, guild_ids, branding, **kwargs)
             self._configure_client_config(client_dir, display_name, plan)
-            self._configure_client_branding(client_dir, branding or {})
+            self._configure_client_branding(client_dir, branding or {}, **kwargs)
             self._configure_client_features(client_dir, plan)
 
             # Create client info
@@ -196,6 +202,7 @@ class ClientManager:
 
     def _create_default_template(self) -> None:
         """Create default template if it doesn't exist."""
+        self.logger.info("Creating default client template")
         self.template_dir.mkdir(exist_ok=True)
 
         # Create template files
@@ -394,191 +401,202 @@ FEATURES = {
             f.write(features_content)
 
     def _configure_client_env(self, client_dir: Path, client_id: str, discord_token: str,
-                             owner_id: int, guild_ids: List[int]) -> None:
+                             owner_id: int, guild_ids: List[int], branding: Dict[str, Any], **kwargs) -> None:
         """Configure client .env file."""
-        template_path = client_dir / ".env.template"
-        env_path = client_dir / ".env"
+        template_file = client_dir / ".env.template"
+        env_file = client_dir / ".env"
 
-        if template_path.exists():
-            with open(template_path, 'r') as f:
+        if template_file.exists():
+            with open(template_file, 'r') as f:
                 content = f.read()
 
-            # Replace placeholders
-            replacements = {
-                "{CLIENT_NAME}": client_id.replace("_", " ").title(),
-                "{DISCORD_TOKEN}": discord_token,
-                "{BOT_NAME}": f"{client_id.replace('_', ' ').title()} Bot",
-                "{BOT_DESCRIPTION}": f"Professional Discord bot for {client_id.replace('_', ' ').title()}",
-                "{OWNER_IDS}": str(owner_id),
-                "{ALLOWED_GUILDS}": ",".join(map(str, guild_ids)) if guild_ids else "",
-                "{STATUS_MESSAGE}": f"🤖 Serving {client_id.replace('_', ' ').title()}:custom"
+            # Substitute variables
+            substitutions = {
+                "CLIENT_NAME": client_id,
+                "DISCORD_TOKEN": discord_token,
+                "BOT_NAME": branding.get("bot_name", f"{client_id.title()} Bot"),
+                "BOT_DESCRIPTION": branding.get("bot_description", f"Discord bot for {client_id}"),
+                "OWNER_IDS": str(owner_id),
+                "ALLOWED_GUILDS": ",".join(map(str, guild_ids)) if guild_ids else "",
+                "STATUS_MESSAGE": kwargs.get("status_message", f"Serving {client_id}")
             }
 
-            for placeholder, value in replacements.items():
-                content = content.replace(placeholder, value)
+            for key, value in substitutions.items():
+                content = content.replace(f"{{{key}}}", str(value))
 
-            with open(env_path, 'w') as f:
+            with open(env_file, 'w') as f:
                 f.write(content)
 
-            template_path.unlink()  # Remove template file
+            # Remove template
+            template_file.unlink()
 
     def _configure_client_config(self, client_dir: Path, display_name: str, plan: str) -> None:
         """Configure client config.py file."""
-        template_path = client_dir / "config.py.template"
-        config_path = client_dir / "config.py"
+        template_file = client_dir / "config.py.template"
+        config_file = client_dir / "config.py"
 
-        if template_path.exists():
-            with open(template_path, 'r') as f:
+        if template_file.exists():
+            with open(template_file, 'r') as f:
                 content = f.read()
 
-            replacements = {
-                "{DISPLAY_NAME}": display_name,
-                "{PLAN}": plan,
-                "{CREATED_AT}": datetime.now(timezone.utc).isoformat()
+            # Substitute variables
+            substitutions = {
+                "DISPLAY_NAME": display_name,
+                "PLAN": plan,
+                "CREATED_AT": datetime.now(timezone.utc).isoformat()
             }
 
-            for placeholder, value in replacements.items():
-                content = content.replace(placeholder, value)
+            for key, value in substitutions.items():
+                content = content.replace(f"{{{key}}}", str(value))
 
-            with open(config_path, 'w') as f:
+            with open(config_file, 'w') as f:
                 f.write(content)
 
-            template_path.unlink()
+            # Remove template
+            template_file.unlink()
 
-    def _configure_client_branding(self, client_dir: Path, branding: Dict[str, Any]) -> None:
+    def _configure_client_branding(self, client_dir: Path, branding: Dict[str, Any], **kwargs) -> None:
         """Configure client branding.py file."""
-        template_path = client_dir / "branding.py.template"
-        branding_path = client_dir / "branding.py"
+        template_file = client_dir / "branding.py.template"
+        branding_file = client_dir / "branding.py"
 
-        if template_path.exists():
-            with open(template_path, 'r') as f:
+        if template_file.exists():
+            with open(template_file, 'r') as f:
                 content = f.read()
 
-            replacements = {
-                "{BOT_NAME}": branding.get("bot_name", "Professional Bot"),
-                "{BOT_DESCRIPTION}": branding.get("bot_description", "A professional Discord bot"),
-                "{STATUS_MESSAGE}": branding.get("status_message", "🤖 Online and ready!")
+            # Substitute variables
+            substitutions = {
+                "BOT_NAME": branding.get("bot_name", kwargs.get("bot_name", "Custom Bot")),
+                "BOT_DESCRIPTION": branding.get("bot_description", kwargs.get("bot_description", "A Discord bot")),
+                "STATUS_MESSAGE": kwargs.get("status_message", "Ready to serve!")
             }
 
-            for placeholder, value in replacements.items():
-                content = content.replace(placeholder, value)
+            for key, value in substitutions.items():
+                content = content.replace(f"{{{key}}}", str(value))
 
-            with open(branding_path, 'w') as f:
+            with open(branding_file, 'w') as f:
                 f.write(content)
 
-            template_path.unlink()
+            # Remove template
+            template_file.unlink()
 
     def _configure_client_features(self, client_dir: Path, plan: str) -> None:
-        """Configure client features.py file based on plan."""
-        template_path = client_dir / "features.py.template"
-        features_path = client_dir / "features.py"
+        """Configure client features.py file."""
+        template_file = client_dir / "features.py.template"
+        features_file = client_dir / "features.py"
 
-        # Define plan-based features
-        plan_features = {
-            "basic": {
-                "MODERATION_ENABLED": "True",
-                "MUSIC_ENABLED": "False",
-                "ECONOMY_ENABLED": "False",
-                "LEVELING_ENABLED": "False",
-                "CUSTOM_COMMANDS_ENABLED": "True",
-                "ANALYTICS_ENABLED": "False",
-                "AUTOMOD_ENABLED": "False",
-                "TICKETS_ENABLED": "False",
-                "FORMS_ENABLED": "False",
-                "POLLS_ENABLED": "True",
-                "ADVANCED_LOGGING_ENABLED": "False",
-                "CUSTOM_INTEGRATIONS_ENABLED": "False",
-                "API_ACCESS_ENABLED": "False",
-                "PRIORITY_SUPPORT_ENABLED": "False",
-                "MAX_CUSTOM_COMMANDS": "25",
-                "MAX_AUTOMOD_RULES": "0",
-                "MAX_TICKET_CATEGORIES": "0",
-                "ANALYTICS_RETENTION_DAYS": "0"
-            },
-            "premium": {
-                "MODERATION_ENABLED": "True",
-                "MUSIC_ENABLED": "True",
-                "ECONOMY_ENABLED": "True",
-                "LEVELING_ENABLED": "True",
-                "CUSTOM_COMMANDS_ENABLED": "True",
-                "ANALYTICS_ENABLED": "True",
-                "AUTOMOD_ENABLED": "True",
-                "TICKETS_ENABLED": "True",
-                "FORMS_ENABLED": "True",
-                "POLLS_ENABLED": "True",
-                "ADVANCED_LOGGING_ENABLED": "True",
-                "CUSTOM_INTEGRATIONS_ENABLED": "False",
-                "API_ACCESS_ENABLED": "False",
-                "PRIORITY_SUPPORT_ENABLED": "True",
-                "MAX_CUSTOM_COMMANDS": "100",
-                "MAX_AUTOMOD_RULES": "10",
-                "MAX_TICKET_CATEGORIES": "5",
-                "ANALYTICS_RETENTION_DAYS": "90"
-            },
-            "enterprise": {
-                "MODERATION_ENABLED": "True",
-                "MUSIC_ENABLED": "True",
-                "ECONOMY_ENABLED": "True",
-                "LEVELING_ENABLED": "True",
-                "CUSTOM_COMMANDS_ENABLED": "True",
-                "ANALYTICS_ENABLED": "True",
-                "AUTOMOD_ENABLED": "True",
-                "TICKETS_ENABLED": "True",
-                "FORMS_ENABLED": "True",
-                "POLLS_ENABLED": "True",
-                "ADVANCED_LOGGING_ENABLED": "True",
-                "CUSTOM_INTEGRATIONS_ENABLED": "True",
-                "API_ACCESS_ENABLED": "True",
-                "PRIORITY_SUPPORT_ENABLED": "True",
-                "MAX_CUSTOM_COMMANDS": "500",
-                "MAX_AUTOMOD_RULES": "50",
-                "MAX_TICKET_CATEGORIES": "20",
-                "ANALYTICS_RETENTION_DAYS": "365"
-            }
-        }
-
-        if template_path.exists():
-            with open(template_path, 'r') as f:
+        if template_file.exists():
+            with open(template_file, 'r') as f:
                 content = f.read()
+
+            # Define plan-based features
+            plan_features = {
+                "basic": {
+                    "MODERATION_ENABLED": "True",
+                    "MUSIC_ENABLED": "False",
+                    "ECONOMY_ENABLED": "False",
+                    "LEVELING_ENABLED": "False",
+                    "CUSTOM_COMMANDS_ENABLED": "True",
+                    "ANALYTICS_ENABLED": "False",
+                    "AUTOMOD_ENABLED": "False",
+                    "TICKETS_ENABLED": "False",
+                    "FORMS_ENABLED": "False",
+                    "POLLS_ENABLED": "True",
+                    "ADVANCED_LOGGING_ENABLED": "False",
+                    "CUSTOM_INTEGRATIONS_ENABLED": "False",
+                    "API_ACCESS_ENABLED": "False",
+                    "PRIORITY_SUPPORT_ENABLED": "False",
+                    "MAX_CUSTOM_COMMANDS": "10",
+                    "MAX_AUTOMOD_RULES": "0",
+                    "MAX_TICKET_CATEGORIES": "0",
+                    "ANALYTICS_RETENTION_DAYS": "0"
+                },
+                "premium": {
+                    "MODERATION_ENABLED": "True",
+                    "MUSIC_ENABLED": "True",
+                    "ECONOMY_ENABLED": "True",
+                    "LEVELING_ENABLED": "True",
+                    "CUSTOM_COMMANDS_ENABLED": "True",
+                    "ANALYTICS_ENABLED": "True",
+                    "AUTOMOD_ENABLED": "True",
+                    "TICKETS_ENABLED": "True",
+                    "FORMS_ENABLED": "True",
+                    "POLLS_ENABLED": "True",
+                    "ADVANCED_LOGGING_ENABLED": "False",
+                    "CUSTOM_INTEGRATIONS_ENABLED": "False",
+                    "API_ACCESS_ENABLED": "False",
+                    "PRIORITY_SUPPORT_ENABLED": "True",
+                    "MAX_CUSTOM_COMMANDS": "50",
+                    "MAX_AUTOMOD_RULES": "10",
+                    "MAX_TICKET_CATEGORIES": "5",
+                    "ANALYTICS_RETENTION_DAYS": "90"
+                },
+                "enterprise": {
+                    "MODERATION_ENABLED": "True",
+                    "MUSIC_ENABLED": "True",
+                    "ECONOMY_ENABLED": "True",
+                    "LEVELING_ENABLED": "True",
+                    "CUSTOM_COMMANDS_ENABLED": "True",
+                    "ANALYTICS_ENABLED": "True",
+                    "AUTOMOD_ENABLED": "True",
+                    "TICKETS_ENABLED": "True",
+                    "FORMS_ENABLED": "True",
+                    "POLLS_ENABLED": "True",
+                    "ADVANCED_LOGGING_ENABLED": "True",
+                    "CUSTOM_INTEGRATIONS_ENABLED": "True",
+                    "API_ACCESS_ENABLED": "True",
+                    "PRIORITY_SUPPORT_ENABLED": "True",
+                    "MAX_CUSTOM_COMMANDS": "200",
+                    "MAX_AUTOMOD_RULES": "50",
+                    "MAX_TICKET_CATEGORIES": "20",
+                    "ANALYTICS_RETENTION_DAYS": "365"
+                }
+            }
 
             features = plan_features.get(plan, plan_features["basic"])
 
-            for placeholder, value in features.items():
-                content = content.replace(f"{{{placeholder}}}", value)
+            # Substitute variables
+            for key, value in features.items():
+                content = content.replace(f"{{{key}}}", value)
 
-            with open(features_path, 'w') as f:
+            with open(features_file, 'w') as f:
                 f.write(content)
 
-            template_path.unlink()
+            # Remove template
+            template_file.unlink()
 
-    def get_client_info(self, client_id: str) -> Optional[ClientInfo]:
-        """Get information about a specific client."""
+    def get_client(self, client_id: str) -> Optional[ClientInfo]:
+        """Get client information by ID."""
         return self.clients.get(client_id)
 
-    def list_clients(self) -> List[ClientInfo]:
-        """Get list of all clients."""
-        return list(self.clients.values())
+    def list_clients(self) -> Dict[str, ClientInfo]:
+        """Get all clients."""
+        return self.clients.copy()
 
     def update_client(self, client_id: str, **updates) -> bool:
         """Update client information."""
         if client_id not in self.clients:
             return False
 
-        client = self.clients[client_id]
+        try:
+            client_info = self.clients[client_id]
 
-        for key, value in updates.items():
-            if hasattr(client, key):
-                setattr(client, key, value)
+            # Update allowed fields
+            allowed_updates = ['display_name', 'plan', 'monthly_fee', 'status', 'branding', 'notes']
+            for key, value in updates.items():
+                if key in allowed_updates:
+                    setattr(client_info, key, value)
 
-        self._save_clients_db()
-        return True
+            self._save_clients_db()
+            self.logger.info(f"Updated client {client_id}")
+            return True
 
-    def delete_client(self, client_id: str, confirm: bool = False) -> bool:
-        """Delete a client and all associated data."""
-        if not confirm:
-            self.logger.warning("delete_client called without confirmation")
+        except Exception as e:
+            self.logger.error(f"Failed to update client {client_id}: {e}")
             return False
 
+    def delete_client(self, client_id: str) -> bool:
+        """Delete a client and its configuration."""
         if client_id not in self.clients:
             return False
 
@@ -592,23 +610,13 @@ FEATURES = {
             del self.clients[client_id]
             self._save_clients_db()
 
-            self.logger.info(f"Deleted client: {client_id}")
+            self.logger.info(f"Deleted client {client_id}")
             return True
 
         except Exception as e:
             self.logger.error(f"Failed to delete client {client_id}: {e}")
             return False
 
-    def get_billing_summary(self) -> Dict[str, Any]:
-        """Get billing summary for all clients."""
-        total_revenue = sum(client.monthly_fee for client in self.clients.values() if client.status == "active")
 
-        return {
-            "total_clients": len(self.clients),
-            "active_clients": sum(1 for client in self.clients.values() if client.status == "active"),
-            "total_monthly_revenue": total_revenue,
-            "plans": {
-                plan: sum(1 for client in self.clients.values() if client.plan == plan)
-                for plan in ["basic", "premium", "enterprise"]
-            }
-        }
+if __name__ == "__main__":
+    print("Use platform.deployment_tools for client management")

@@ -10,6 +10,7 @@ import sys
 import os
 from pathlib import Path
 
+
 def main():
     print("🚀 Starting Multi-Client Discord Bot Platform")
     print("=" * 48)
@@ -35,6 +36,7 @@ def main():
     # Start platform
     print("🤖 Starting platform...")
     subprocess.run([str(python_executable), "platform_main.py"])
+
 
 if __name__ == "__main__":
     main()
