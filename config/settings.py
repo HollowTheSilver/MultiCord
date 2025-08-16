@@ -59,7 +59,7 @@ class BotConfig:
 
     # // ========================================( Database Configuration )======================================== // #
 
-    DATABASE_URL: Optional[str] = field(default_factory=lambda: os.getenv("DATABASE_URL"))
+    DATABASE_URL: Optional[str] = field(default_factory=lambda: os.getenv("DATABASE_URL", "data/permissions.db"))
     DATABASE_POOL_SIZE: int = field(default_factory=lambda: int(os.getenv("DATABASE_POOL_SIZE", "10")))
     DATABASE_TIMEOUT: int = field(default_factory=lambda: int(os.getenv("DATABASE_TIMEOUT", "30")))
 

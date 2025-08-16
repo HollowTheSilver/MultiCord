@@ -7,7 +7,7 @@ configuration management, graceful shutdown, enhanced embeds, professional error
 and enterprise-grade permission system.
 
 Author: HollowTheSilver
-Version: 1.2.1 (Enhanced Permission System)
+Version: 2.0.1
 """
 
 # // ========================================( Modules )======================================== // #
@@ -100,6 +100,7 @@ class Application(commands.Bot):
 
         # Optional integrations (to be implemented as needed)
         self.database: Optional[Any] = None
+        self.database_path = self.config.DATABASE_URL or "data/permissions.db"
         self.cache: Optional[Any] = None
         self.external_api: Optional[Any] = None
 
@@ -127,6 +128,10 @@ class Application(commands.Bot):
 
             # Configure permission manager
             self.permission_manager = setup_enhanced_permission_system(self)
+
+            # Initialize database persistence
+            if self.permission_manager:
+                await self.permission_manager.initialize_database(self.database_path)
 
             # Load extensions/cogs
             await self._load_extensions()
@@ -183,7 +188,7 @@ class Application(commands.Bot):
             # Example service initializations
             if self.config.DATABASE_URL:
                 self.logger.info("Initializing database connection...")
-                # self.database = await init_database(self.config.DATABASE_URL)
+                # Database is already initialized in setup_hook via permission manager
 
             if self.config.REDIS_URL:
                 self.logger.info("Initializing cache connection...")
@@ -209,6 +214,10 @@ class Application(commands.Bot):
             else:
                 # Single status - will be set in on_ready when bot is connected
                 ...
+
+        if self.permission_manager and hasattr(self.permission_manager, 'db_manager'):
+            self.database_cleanup_task.start()
+            self.logger.info("Database cleanup task started")
 
         if self.config.ENABLE_HEALTH_CHECKS:
             self.health_check_task.start()
@@ -244,10 +253,9 @@ class Application(commands.Bot):
             self.health_check_task.cancel()
             self.logger.info("Health check task stopped")
 
-        # Close external connections
-        if self.database:
-            self.logger.info("Closing database connection...")
-            # await self.database.close()
+        # Shutdown database connections
+        if self.permission_manager and hasattr(self.permission_manager, 'shutdown'):
+            await self.permission_manager.shutdown()
 
         if self.cache:
             self.logger.info("Closing cache connection...")
@@ -337,6 +345,26 @@ class Application(commands.Bot):
     @health_check_task.before_loop
     async def before_health_check(self) -> None:
         """Wait until bot is ready before starting health checks."""
+        await self.wait_until_ready()
+
+    @tasks.loop(hours=24)  # Run daily
+    async def database_cleanup_task(self) -> None:
+        """Perform daily database cleanup."""
+        try:
+            if self.permission_manager and hasattr(self.permission_manager, 'cleanup_database'):
+                await self.permission_manager.cleanup_database()
+
+                # Get database stats
+                if hasattr(self.permission_manager, 'db_manager') and self.permission_manager.db_manager:
+                    stats = await self.permission_manager.db_manager.get_database_stats()
+                    self.logger.debug("Database stats", extra=stats)
+
+        except Exception as e:
+            self.logger.error(f"Database cleanup failed: {e}")
+
+    @database_cleanup_task.before_loop
+    async def before_database_cleanup(self) -> None:
+        """Wait until bot is ready before starting database cleanup."""
         await self.wait_until_ready()
 
     # // ========================================( Event Handlers )======================================== // #

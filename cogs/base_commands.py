@@ -78,7 +78,7 @@ class BaseCommands(commands.Cog):
 
     async def cog_unload(self) -> None:
         """Called when the cog is unloaded."""
-        self.logger.info("Cog unloaded successfully")
+        self.logger.info("Successfully unloaded cog")
 
     async def cog_command_error(self, ctx: commands.Context, error: commands.CommandError) -> None:
         """Handle errors that occur in this cog's commands."""

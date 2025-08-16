@@ -1,9 +1,8 @@
 """
-Enhanced Permission System
+Permission System
 ===========================
 
-Upgraded permission management system with:
-- Enhanced permission levels (LEAD_MOD, LEAD_ADMIN)
+Permission management system with:
 - HIERARCHY-AWARE auto-detection of Discord roles
 - ROLE CLASSIFICATION system (Bot, Cosmetic, Authority, etc.)
 - UNICODE NORMALIZATION for fancy Discord text
@@ -39,6 +38,8 @@ except ImportError:
         return unicodedata.normalize('NFKD', text).encode('ascii', 'ignore').decode('ascii')
 
 from utils.exceptions import PermissionError, ValidationError
+from utils.database import DatabaseManager
+from utils.permission_persistence import PermissionPersistence
 from utils.embeds import create_error_embed, create_warning_embed, create_success_embed, create_info_embed
 
 
@@ -995,13 +996,13 @@ class EnhancedRoleClassifier:
 
 class EnhancedPermissionManager:
     """
-    Enhanced permission management system with intelligent role classification,
+    Permission management system with intelligent role classification,
     hierarchy-aware auto-detection, and performance optimization.
     """
 
     def __init__(self, bot: commands.Bot) -> None:
         """
-        Initialize the enhanced permission manager.
+        Initialize the permission manager.
 
         Args:
             bot: The bot instance
@@ -1020,9 +1021,13 @@ class EnhancedPermissionManager:
         self.permission_check_cache: Dict[str, Tuple[bool, float]] = {}
         self.cache_ttl: float = 300.0  # 5 minutes
 
-        # Overrides storage (will be database-backed later)
+        # Overrides storage (database-backed)
         self.overrides: List[PermissionOverride] = []
         self.audit_log: List[PermissionAuditEntry] = []
+
+        # Database persistence (initialized later)
+        self.db_manager: Optional[DatabaseManager] = None
+        self.persistence: Optional[PermissionPersistence] = None
 
         # Enhanced role classification system
         self.role_classifier = EnhancedRoleClassifier(self.logger)
@@ -1150,9 +1155,11 @@ class EnhancedPermissionManager:
             guild_id=guild.id
         )
         self.audit_log.append(audit_entry)
+        await self._save_audit_entry(audit_entry)
 
         # Clear cache
         self.clear_cache()
+        await self._save_to_database(guild.id)
 
         if self.logger:
             self.logger.info(f"Intelligent auto-configuration complete for {guild.name}: "
@@ -1162,7 +1169,7 @@ class EnhancedPermissionManager:
 
         return confident_mappings, uncertain_roles
 
-    def set_role_permission_level(self, guild_id: int, role_id: int, level: PermissionLevel, actor_id: Optional[int] = None) -> None:
+    async def set_role_permission_level(self, guild_id: int, role_id: int, level: PermissionLevel, actor_id: Optional[int] = None) -> None:
         """
         Set a permission level for a specific role.
 
@@ -1177,6 +1184,7 @@ class EnhancedPermissionManager:
 
         config.role_mappings[role_id] = level
         self.clear_cache()
+        await self._save_to_database(guild_id)
 
         # Log the action
         audit_entry = PermissionAuditEntry(
@@ -1188,11 +1196,45 @@ class EnhancedPermissionManager:
             guild_id=guild_id
         )
         self.audit_log.append(audit_entry)
+        await self._save_audit_entry(audit_entry)
 
         if self.logger:
             self.logger.info(f"Set role {role_id} to {level.name} in guild {guild_id}")
 
-    def set_command_requirement(self, guild_id: int, command_node: str, level: PermissionLevel, actor_id: Optional[int] = None) -> None:
+    async def set_role_classification(self, guild_id: int, role_id: int, role_type: RoleType,
+                                      actor_id: Optional[int] = None) -> None:
+        """
+        Manually override the classification for a specific role.
+
+        Args:
+            guild_id: The guild ID
+            role_id: The role ID
+            role_type: The role type to assign
+            actor_id: User ID who made the change
+        """
+        config = self.get_guild_config(guild_id)
+        old_type = config.role_classifications.get(role_id)
+
+        config.role_classifications[role_id] = role_type
+        self.clear_cache()
+        await self._save_to_database(guild_id)
+
+        # Log the action
+        audit_entry = PermissionAuditEntry(
+            action="set_role_type",
+            target_type="role",
+            target_id=role_id,
+            permission_data=f"Changed from {old_type.value if old_type else 'None'} to {role_type.value}",
+            actor_id=actor_id or 0,
+            guild_id=guild_id
+        )
+        self.audit_log.append(audit_entry)
+        await self._save_audit_entry(audit_entry)
+
+        if self.logger:
+            self.logger.info(f"Set role {role_id} classification to {role_type.value} in guild {guild_id}")
+
+    async def set_command_requirement(self, guild_id: int, command_node: str, level: PermissionLevel, actor_id: Optional[int] = None) -> None:
         """
         Set the required permission level for a command in a specific guild.
 
@@ -1207,6 +1249,7 @@ class EnhancedPermissionManager:
 
         config.node_overrides[command_node] = level
         self.clear_cache()
+        await self._save_to_database(guild_id)
 
         # Log the action
         audit_entry = PermissionAuditEntry(
@@ -1218,6 +1261,7 @@ class EnhancedPermissionManager:
             guild_id=guild_id
         )
         self.audit_log.append(audit_entry)
+        await self._save_audit_entry(audit_entry)
 
         if self.logger:
             self.logger.info(f"Set command {command_node} to require {level.name} in guild {guild_id}")
@@ -1616,7 +1660,7 @@ class EnhancedPermissionManager:
         config = self.get_guild_config(guild_id)
         return config.node_overrides.copy()
 
-    def reset_guild_config(self, guild_id: int, actor_id: Optional[int] = None) -> None:
+    async def reset_guild_config(self, guild_id: int, actor_id: Optional[int] = None) -> None:
         """
         Reset guild configuration to defaults.
 
@@ -1626,6 +1670,9 @@ class EnhancedPermissionManager:
         """
         if guild_id in self.guild_configs:
             del self.guild_configs[guild_id]
+
+        if self.persistence:
+            await self.persistence.delete_guild_config(guild_id)
 
         self.clear_cache()
 
@@ -1639,9 +1686,91 @@ class EnhancedPermissionManager:
             guild_id=guild_id
         )
         self.audit_log.append(audit_entry)
+        await self._save_audit_entry(audit_entry)
 
         if self.logger:
             self.logger.info(f"Reset permission configuration for guild {guild_id}")
+
+    # // ========================================( Database Methods )======================================== // #
+
+    async def initialize_database(self, db_path: str = "data/permissions.db") -> None:
+        """Initialize database persistence layer."""
+        try:
+            self.db_manager = DatabaseManager(db_path, self.logger)
+            await self.db_manager.initialize()
+
+            self.persistence = PermissionPersistence(self.db_manager, self.logger)
+
+            # Load existing configurations from database
+            await self._load_from_database()
+
+            if self.logger:
+                self.logger.info("Database persistence initialized")
+
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"Database initialization failed: {e}")
+            # Continue without database persistence
+            self.db_manager = None
+            self.persistence = None
+
+    async def _load_from_database(self) -> None:
+        """Load existing configurations from database."""
+        if not self.persistence:
+            return
+
+        try:
+            # Load all guild configurations
+            stored_configs = await self.persistence.load_all_guild_configs()
+            self.guild_configs.update(stored_configs)
+
+            # Load permission overrides
+            self.overrides = await self.persistence.load_permission_overrides()
+
+            # Load recent audit entries (last 1000)
+            recent_entries = await self.persistence.load_audit_entries(limit=1000)
+            self.audit_log.extend(recent_entries)
+
+            if self.logger:
+                self.logger.info(f"Loaded {len(stored_configs)} guild configs from database")
+
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"Failed to load from database: {e}")
+
+    async def _save_to_database(self, guild_id: int) -> None:
+        """Save guild configuration to database."""
+        if not self.persistence:
+            return
+
+        try:
+            config = self.guild_configs.get(guild_id)
+            if config:
+                await self.persistence.save_guild_config(guild_id, config)
+
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"Failed to save guild {guild_id} to database: {e}")
+
+    async def _save_audit_entry(self, entry: PermissionAuditEntry) -> None:
+        """Save audit entry to database."""
+        if self.persistence:
+            await self.persistence.save_audit_entry(entry)
+
+    async def cleanup_database(self) -> None:
+        """Cleanup old database entries."""
+        if self.persistence:
+            # Cleanup old audit entries (older than 30 days)
+            await self.db_manager.cleanup_old_data(30)
+
+            # Cleanup expired overrides
+            await self.persistence.cleanup_expired_overrides()
+
+    # Add shutdown method:
+    async def shutdown(self) -> None:
+        """Shutdown database connections."""
+        if self.db_manager:
+            await self.db_manager.close()
 
 
 # // ========================================( Updated Decorators )======================================== // #

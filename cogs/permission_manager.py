@@ -2,7 +2,8 @@
 Permission Manager Cog
 ========================================================
 
-Hybrid commands for both slash and text command support.
+Permission management commands with manual classification override,
+improved validation, and better user experience.
 """
 
 import asyncio
@@ -34,7 +35,7 @@ from utils.exceptions import ValidationError
 class PermissionManager(commands.Cog):
     """
     Comprehensive permission management interface for server administrators.
-    Enhanced with intelligent role classification and Unicode text support.
+    Enhanced with intelligent role classification, manual overrides, and Unicode text support.
     """
 
     def __init__(self, bot: commands.Bot) -> None:
@@ -79,7 +80,7 @@ class PermissionManager(commands.Cog):
 
     async def cog_unload(self) -> None:
         """Called when the cog is unloaded."""
-        self.logger.info("Cog unloaded successfully")
+        self.logger.info("Successfully unloaded cog")
 
     async def cog_command_error(self, ctx: commands.Context, error: commands.CommandError) -> None:
         """Handle errors that occur in this cog's commands."""
@@ -98,9 +99,7 @@ class PermissionManager(commands.Cog):
     @commands.guild_only()
     @require_level(PermissionLevel.ADMIN)
     async def setup_permissions(self, ctx: commands.Context) -> None:
-        """
-        Auto-configure role permissions using intelligent classification and hierarchy analysis.
-        """
+        """Auto-configure role permissions using intelligent classification and hierarchy analysis."""
         # Show loading message
         loading_embed = EmbedBuilder(
             EmbedType.LOADING,
@@ -203,6 +202,7 @@ class PermissionManager(commands.Cog):
                 value="• Review with `/permissions-list`\n"
                       "• Check classifications with `/permissions-classify`\n"
                       "• Adjust roles with `/permissions-set-role`\n"
+                      "• Override classifications with `/permissions-set-role-type`\n"
                       "• Debug with `/permissions-analyze`",
                 inline=False
             )
@@ -229,9 +229,7 @@ class PermissionManager(commands.Cog):
     @commands.guild_only()
     @require_level(PermissionLevel.ADMIN)
     async def view_classifications(self, ctx: commands.Context) -> None:
-        """
-        View intelligent role classifications for this server.
-        """
+        """View intelligent role classifications for this server."""
         config = self.permission_manager.get_guild_config(ctx.guild.id)
 
         if not config.role_classifications:
@@ -291,7 +289,14 @@ class PermissionManager(commands.Cog):
                   "**Cosmetic:** Display-only roles (colors, teams)\n"
                   "**Integration:** Discord integrations (Nitro, etc.)\n"
                   "**Functional:** Channel-specific permissions\n"
+                  "**Temporary:** Event/temporary roles\n"
                   "**Unknown:** Couldn't classify confidently",
+            inline=False
+        )
+
+        embed.add_field(
+            name="🔧 Manual Override",
+            value="Use `/permissions-set-role-type` to manually override any classification.",
             inline=False
         )
 
@@ -309,9 +314,7 @@ class PermissionManager(commands.Cog):
     @commands.guild_only()
     @require_level(PermissionLevel.ADMIN)
     async def analyze_hierarchy(self, ctx: commands.Context) -> None:
-        """
-        Show detailed analysis of role hierarchy and classification for debugging.
-        """
+        """Show detailed analysis of role hierarchy and classification for debugging."""
         # Show loading message
         loading_embed = EmbedBuilder(
             EmbedType.LOADING,
@@ -322,16 +325,6 @@ class PermissionManager(commands.Cog):
         message = await ctx.send(embed=loading_embed)
 
         try:
-            # Get detailed analysis report
-            report = self.permission_manager.role_classifier.get_analysis_report(ctx.guild)
-
-            # Create embed with analysis results
-            embed = EmbedBuilder(
-                EmbedType.INFO,
-                f"🧠 Deep Analysis - {ctx.guild.name}",
-                "Detailed classification and hierarchy analysis for debugging"
-            )
-
             # Count roles by type and category
             config = self.permission_manager.get_guild_config(ctx.guild.id)
 
@@ -356,6 +349,12 @@ class PermissionManager(commands.Cog):
             # Summary statistics
             total_roles = len(ctx.guild.roles) - 1  # Exclude @everyone
             authority_count = type_counts.get(RoleType.AUTHORITY, 0)
+
+            embed = EmbedBuilder(
+                EmbedType.INFO,
+                f"🧠 Deep Analysis - {ctx.guild.name}",
+                "Detailed classification and hierarchy analysis for debugging"
+            )
 
             embed.add_field(
                 name="📊 Classification Summary",
@@ -467,9 +466,7 @@ class PermissionManager(commands.Cog):
     @commands.guild_only()
     @require_level(PermissionLevel.ADMIN)
     async def list_permissions(self, ctx: commands.Context) -> None:
-        """
-        Display the current permission configuration for this server.
-        """
+        """Display the current permission configuration for this server."""
         config = self.permission_manager.get_guild_config(ctx.guild.id)
 
         embed = EmbedBuilder(
@@ -590,7 +587,7 @@ class PermissionManager(commands.Cog):
     )
     @app_commands.describe(
         role="The role to configure",
-        level="Permission level (EVERYONE, MEMBER, MODERATOR, LEAD_MOD, ADMIN, LEAD_ADMIN, OWNER)"
+        level="Permission level: EVERYONE, MEMBER, MODERATOR, LEAD_MOD, ADMIN, LEAD_ADMIN, OWNER, BOT_ADMIN, BOT_OWNER"
     )
     @commands.guild_only()
     @require_level(PermissionLevel.ADMIN)
@@ -600,9 +597,7 @@ class PermissionManager(commands.Cog):
         role: discord.Role,
         level: str
     ) -> None:
-        """
-        Set the permission level for a specific role.
-        """
+        """Set the permission level for a specific role."""
         # Validate permission level
         try:
             permission_level = PermissionLevel[level.upper()]
@@ -614,12 +609,24 @@ class PermissionManager(commands.Cog):
                 expected_format=f"one of: {', '.join(valid_levels)}"
             )
 
+        # Prevent setting BOT_ADMIN/BOT_OWNER unless user is bot owner
+        if permission_level in [PermissionLevel.BOT_ADMIN, PermissionLevel.BOT_OWNER]:
+            user_level = self.permission_manager.get_user_permission_level(ctx.author, ctx.guild)
+            if user_level < PermissionLevel.BOT_OWNER:
+                embed = create_error_embed(
+                    title="Insufficient Permissions",
+                    description=f"Only bot owners can assign {permission_level.name.title()} level.",
+                    user=ctx.author
+                )
+                await ctx.send(embed=embed)
+                return
+
         # Get current classification
         config = self.permission_manager.get_guild_config(ctx.guild.id)
         role_type = config.role_classifications.get(role.id, RoleType.UNKNOWN)
 
         # Set the role permission
-        self.permission_manager.set_role_permission_level(
+        await self.permission_manager.set_role_permission_level(
             guild_id=ctx.guild.id,
             role_id=role.id,
             level=permission_level,
@@ -677,12 +684,102 @@ class PermissionManager(commands.Cog):
         await ctx.send(embed=embed)
 
     @commands.hybrid_command(
+        name="permissions-set-role-type",
+        description="Manually override the classification type for a specific role"
+    )
+    @app_commands.describe(
+        role="The role to reclassify",
+        role_type="Classification type: AUTHORITY, BOT, COSMETIC, FUNCTIONAL, INTEGRATION, TEMPORARY, UNKNOWN"
+    )
+    @commands.guild_only()
+    @require_level(PermissionLevel.ADMIN)
+    async def set_role_classification(
+        self,
+        ctx: commands.Context,
+        role: discord.Role,
+        role_type: str
+    ) -> None:
+        """Manually override the classification type for a specific role."""
+        # Validate role type
+        try:
+            new_role_type = RoleType[role_type.upper()]
+        except KeyError:
+            valid_types = [rt.value.upper() for rt in RoleType]
+            raise ValidationError(
+                field_name="role_type",
+                value=role_type,
+                expected_format=f"one of: {', '.join(valid_types)}"
+            )
+
+        # Get current configuration
+        config = self.permission_manager.get_guild_config(ctx.guild.id)
+        old_role_type = config.role_classifications.get(role.id, RoleType.UNKNOWN)
+
+        # Set the new classification (we need to add this method to the permission manager)
+        if hasattr(self.permission_manager, 'set_role_classification'):
+            self.permission_manager.set_role_classification(
+                guild_id=ctx.guild.id,
+                role_id=role.id,
+                role_type=new_role_type,
+                actor_id=ctx.author.id
+            )
+        else:
+            # Temporary direct assignment until we add the method
+            config.role_classifications[role.id] = new_role_type
+            self.permission_manager.clear_cache()
+
+        # Create success message
+        embed = create_success_embed(
+            title="✅ Role Classification Updated",
+            description=f"{role.mention} classification changed from **{old_role_type.value.title()}** to **{new_role_type.value.title()}**",
+            user=ctx.author
+        )
+
+        # Show before/after
+        old_icon = self._get_role_type_icon(old_role_type)
+        new_icon = self._get_role_type_icon(new_role_type)
+
+        embed.add_field(
+            name="📊 Classification Change",
+            value=f"**Before:** {old_icon} {old_role_type.value.title()}\n"
+                  f"**After:** {new_icon} {new_role_type.value.title()}",
+            inline=True
+        )
+
+        # Show current permission mapping if any
+        if role.id in config.role_mappings:
+            level = config.role_mappings[role.id]
+            embed.add_field(
+                name="🎭 Permission Level",
+                value=f"**Current:** {level.name.title()}\n"
+                      f"*Permission level unchanged*",
+                inline=True
+            )
+
+        # Warning about classification impact
+        embed.add_field(
+            name="💡 Impact of This Change",
+            value=f"• **Hierarchy Analysis:** {'Included' if new_role_type == RoleType.AUTHORITY else 'Excluded'}\n"
+                  f"• **Auto-Setup:** {'Will be mapped' if new_role_type == RoleType.AUTHORITY else 'Will be skipped'}\n"
+                  f"• **Display Category:** Shows in {new_role_type.value.title()} section",
+            inline=False
+        )
+
+        await ctx.send(embed=embed)
+
+        self.logger.info(f"Role classification changed: {role.name} from {old_role_type.value} to {new_role_type.value}", extra={
+            "guild": ctx.guild.name,
+            "role_id": role.id,
+            "user": str(ctx.author)
+        })
+
+    @commands.hybrid_command(
         name="permissions-set-command",
         description="Set the required permission level for a specific command"
     )
     @app_commands.describe(
         command="Command name (e.g., 'warn', 'kick', 'ban')",
-        level="Required permission level"
+        level="Required permission level: EVERYONE, MEMBER, MODERATOR, LEAD_MOD, ADMIN, LEAD_ADMIN, OWNER"
     )
     @commands.guild_only()
     @require_level(PermissionLevel.ADMIN)
@@ -692,14 +789,12 @@ class PermissionManager(commands.Cog):
         command: str,
         level: str
     ) -> None:
-        """
-        Set the required permission level for a specific command.
-        """
+        """Set the required permission level for a specific command."""
         # Validate permission level
         try:
             permission_level = PermissionLevel[level.upper()]
         except KeyError:
-            valid_levels = [level.name for level in PermissionLevel if level.value >= 0]
+            valid_levels = [level.name for level in PermissionLevel if level.value >= 0 and level.value <= 100]
             raise ValidationError(
                 field_name="level",
                 value=level,
@@ -765,7 +860,7 @@ class PermissionManager(commands.Cog):
         old_level = config.get_required_level(node_name, self.permission_manager.nodes)
 
         # Set new requirement
-        self.permission_manager.set_command_requirement(
+        await self.permission_manager.set_command_requirement(
             guild_id=ctx.guild.id,
             command_node=node_name,
             level=permission_level,
@@ -826,9 +921,7 @@ class PermissionManager(commands.Cog):
         ctx: commands.Context,
         user: Optional[discord.Member] = None
     ) -> None:
-        """
-        Analyze and display permission information for a specific user.
-        """
+        """Analyze and display permission information for a specific user."""
         target_user = user or ctx.author
 
         # Get user's permission level
@@ -915,10 +1008,7 @@ class PermissionManager(commands.Cog):
     @commands.guild_only()
     @require_level(PermissionLevel.ADMIN)
     async def reset_config(self, ctx: commands.Context) -> None:
-        """
-        Reset the permission configuration to defaults.
-        ⚠️ This will remove all custom role mappings and command overrides!
-        """
+        """Reset the permission configuration to defaults."""
         # Confirmation message
         embed = create_warning_embed(
             title="⚠️ Reset Permission Configuration",
@@ -960,7 +1050,7 @@ class PermissionManager(commands.Cog):
             reaction, user = await self.bot.wait_for('reaction_add', timeout=30.0, check=check)
 
             # Perform reset
-            self.permission_manager.reset_guild_config(ctx.guild.id, ctx.author.id)
+            await self.permission_manager.reset_guild_config(ctx.guild.id, ctx.author.id)
 
             success_embed = create_success_embed(
                 title="✅ Configuration Reset",
@@ -985,6 +1075,67 @@ class PermissionManager(commands.Cog):
             )
             await message.edit(embed=timeout_embed)
             await message.clear_reactions()
+
+    # // ========================================( Bulk Operations )======================================== // #
+
+    @commands.hybrid_command(
+        name="permissions-bulk-set",
+        description="Set permission levels for multiple roles at once (advanced)"
+    )
+    @commands.guild_only()
+    @require_level(PermissionLevel.LEAD_ADMIN)
+    async def bulk_set_permissions(self, ctx: commands.Context) -> None:
+        """Interactive bulk permission setting for multiple roles."""
+        config = self.permission_manager.get_guild_config(ctx.guild.id)
+
+        # Get all authority roles
+        authority_roles = []
+        for role_id, role_type in config.role_classifications.items():
+            if role_type == RoleType.AUTHORITY:
+                role = ctx.guild.get_role(role_id)
+                if role:
+                    authority_roles.append(role)
+
+        if not authority_roles:
+            embed = create_warning_embed(
+                title="No Authority Roles Found",
+                description="No authority roles found to configure. Run `/permissions-setup` first.",
+                user=ctx.author
+            )
+            await ctx.send(embed=embed)
+            return
+
+        embed = EmbedBuilder(
+            EmbedType.INFO,
+            "🔧 Bulk Permission Setup",
+            f"Found {len(authority_roles)} authority roles to configure"
+        )
+
+        # Show current mappings
+        role_list = []
+        for role in authority_roles[:10]:  # Limit display
+            current_level = config.role_mappings.get(role.id, "Not Set")
+            level_str = current_level.name.title() if hasattr(current_level, 'name') else str(current_level)
+            role_list.append(f"• {role.mention} → {level_str}")
+
+        if len(authority_roles) > 10:
+            role_list.append(f"... and {len(authority_roles) - 10} more")
+
+        embed.add_field(
+            name="🎭 Authority Roles",
+            value="\n".join(role_list),
+            inline=False
+        )
+
+        embed.add_field(
+            name="💡 How to Use",
+            value="This is a placeholder for bulk operations. For now, use:\n"
+                  "• `/permissions-set-role` for individual roles\n"
+                  "• `/permissions-setup` for automatic configuration",
+            inline=False
+        )
+
+        await ctx.send(embed=embed.build())
 
     # // ========================================( Utility Methods )======================================== // #
 
@@ -1019,7 +1170,5 @@ class PermissionManager(commands.Cog):
 
 
 async def setup(bot: commands.Bot) -> None:
-    """
-    Setup function to add the permission manager commands cog to the bot.
-    """
+    """Setup function to add the permission manager commands cog to the bot."""
     await bot.add_cog(PermissionManager(bot))
