@@ -1,0 +1,13 @@
+"""Client Configuration"""
+CLIENT_CONFIG = {
+    "bot_config": {
+        "COMMAND_PREFIX": "!",
+        "ENABLE_SLASH_COMMANDS": True,
+        "STATUS_CYCLE_INTERVAL": 300,
+    },
+    "client_info": {
+        "display_name": "{DISPLAY_NAME}",
+        "plan": "{PLAN}",
+        "created_at": "{CREATED_AT}",
+    }
+}

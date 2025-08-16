@@ -4,15 +4,15 @@
 # ========================================( Discord Configuration )======================================== #
 
 # Required: Your Discord bot token
-DISCORD_TOKEN=your_discord_bot_token_here
+DISCORD_TOKEN=MTQwNDI2ODg0NTMyMTE2Mjg0NQ.GBccvK.Uij3ocxgeBnmnTONpdQf8khh7wHv0mKt9_nkfs
 
 # Bot identification
-BOT_NAME="DiscordBot"
-BOT_VERSION="1.1.0"
-BOT_DESCRIPTION="An enterprise-grade Discord bot template"
+BOT_NAME="Link Guard"
+BOT_VERSION="2.0.1"
+BOT_DESCRIPTION="Link Guard Development-Build"
 
 # Command settings
-COMMAND_PREFIX="!"
+COMMAND_PREFIX="lg!"
 CASE_INSENSITIVE_COMMANDS="true"
 
 # ========================================( Discord Intents )======================================== #
@@ -24,12 +24,12 @@ ENABLE_MEMBER_INTENTS="true"
 ENABLE_MESSAGE_CONTENT_INTENT="true"
 
 # Enable presence intent (optional, for member status/activity)
-ENABLE_PRESENCE_INTENT="false"
+ENABLE_PRESENCE_INTENT="true"
 
 # ========================================( Permission System )======================================== #
 
 # Bot owner user IDs (comma-separated) - highest permission level
-OWNER_IDS="123456789012345678,987654321098765432"
+OWNER_IDS="222197816309710848"
 
 # Allowed guild IDs (comma-separated, leave empty for no restrictions)
 # If specified, bot will only respond in these guilds
@@ -66,7 +66,7 @@ STATUS_CYCLE_INTERVAL="300"
 # Custom status messages (format: "message1:type1,message2:type2")
 # Types: playing, watching, listening, streaming, competing, custom
 # Single status example:
-STATUS_MESSAGES="🤖 Always online and ready!:custom"
+STATUS_MESSAGES="💻 Developed by Hollow:custom"
 # Multiple status example (cycles automatically):
 # STATUS_MESSAGES="with Discord.py:playing,for new members:watching,to commands:listening,🤖 Online and ready!:custom"
 
@@ -111,7 +111,7 @@ ENABLE_SLASH_COMMANDS="true"
 ENABLE_MESSAGE_COMMANDS="true"
 
 # Auto-sync slash commands on startup (disable in production)
-ENABLE_AUTO_SYNC="false"
+ENABLE_AUTO_SYNC="true"
 
 # ========================================( Performance )======================================== #
 
@@ -130,7 +130,7 @@ CHUNK_SIZE="100"
 DEBUG_MODE="false"
 
 # Development guild ID for slash command testing
-DEV_GUILD_ID=""
+DEV_GUILD_ID="1397662300693074081"
 
 # ========================================( External Services )======================================== #
 

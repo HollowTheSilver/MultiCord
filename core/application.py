@@ -546,6 +546,27 @@ class Application(commands.Bot):
 
         return stats
 
+    def get_branded_embed_color(self, embed_type: str = "default") -> int:
+        """Get client-specific embed color."""
+        if not hasattr(self, 'client_branding'):
+            return 0x3498db  # Default blue
+
+        colors = self.client_branding.get('embed_colors', {})
+        return colors.get(embed_type, colors.get('default', 0x3498db))
+
+    def get_branded_bot_name(self) -> str:
+        """Get client-specific bot name."""
+        if hasattr(self, 'client_branding') and 'bot_name' in self.client_branding:
+            return self.client_branding['bot_name']
+        return self.config.BOT_NAME
+
+    def is_feature_enabled(self, feature: str) -> bool:
+        """Check if a specific feature is enabled for this client."""
+        if not hasattr(self, 'client_features'):
+            return True  # Default to enabled if no feature config
+
+        return self.client_features.get(feature, True)
+
 
 # // ========================================( Main Function )======================================== // #
 
