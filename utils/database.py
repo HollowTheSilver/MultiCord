@@ -301,12 +301,20 @@ class DatabaseManager:
             cutoff_date = datetime.now(timezone.utc).replace(tzinfo=None)
             cutoff_timestamp = (cutoff_date.timestamp() - (days * 24 * 60 * 60))
 
-            result = await self.fetch_one(
-                "DELETE FROM audit_log WHERE timestamp < datetime(?, 'unixepoch') RETURNING COUNT(*)",
+            # First count the rows that will be deleted
+            count_result = await self.fetch_one(
+                "SELECT COUNT(*) as count FROM audit_log WHERE timestamp < datetime(?, 'unixepoch')",
                 (cutoff_timestamp,)
             )
 
-            cleaned_count = result["COUNT(*)"] if result else 0
+            cleaned_count = count_result["count"] if count_result else 0
+
+            # Only delete if there are rows to delete
+            if cleaned_count > 0:
+                await self.execute(
+                    "DELETE FROM audit_log WHERE timestamp < datetime(?, 'unixepoch')",
+                    (cutoff_timestamp,)
+                )
 
             if self.logger and cleaned_count > 0:
                 self.logger.info(f"Cleaned up {cleaned_count} old audit log entries")

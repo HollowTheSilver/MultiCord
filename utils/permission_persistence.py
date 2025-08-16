@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from typing import Dict, List, Optional, Any
 from dataclasses import asdict
 
-from utils.permissions import (
+from utils.permission_models import (
     GuildPermissionConfig, PermissionLevel, RoleType,
     PermissionOverride, PermissionAuditEntry, PermissionScope
 )
@@ -422,13 +422,20 @@ class PermissionPersistence:
         try:
             now = datetime.now(timezone.utc).isoformat()
 
-            result = await self.db.fetch_one("""
-                DELETE FROM permission_overrides 
+            # First count the rows that will be deleted
+            count_result = await self.db.fetch_one("""
+                SELECT COUNT(*) as count FROM permission_overrides 
                 WHERE expires_at IS NOT NULL AND expires_at < ?
-                RETURNING COUNT(*)
             """, (now,))
 
-            count = result["COUNT(*)"] if result else 0
+            count = count_result["count"] if count_result else 0
+
+            # Only delete if there are rows to delete
+            if count > 0:
+                await self.db.execute("""
+                    DELETE FROM permission_overrides 
+                    WHERE expires_at IS NOT NULL AND expires_at < ?
+                """, (now,))
 
             if self.logger and count > 0:
                 self.logger.info(f"Cleaned up {count} expired permission overrides")

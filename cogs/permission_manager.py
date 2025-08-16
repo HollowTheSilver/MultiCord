@@ -13,12 +13,11 @@ from discord import app_commands
 from typing import Optional, Union, List
 
 from utils.loguruConfig import configure_logger
+from utils.permission_models import PermissionLevel, RoleType
 from utils.permissions import (
     require_permission,
     require_level,
-    PermissionLevel,
     EnhancedPermissionManager,
-    RoleType,
     normalize_discord_text
 )
 from utils.embeds import (

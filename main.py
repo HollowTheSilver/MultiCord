@@ -32,7 +32,8 @@ from dotenv import load_dotenv
 
 from config.settings import BotConfig
 from utils.loguruConfig import configure_logger
-from utils.permissions import setup_enhanced_permission_system, PermissionLevel
+from utils.permission_models import PermissionLevel
+from utils.permissions import setup_enhanced_permission_system
 from utils.exceptions import BotError, ConfigurationError, ShutdownError
 from utils.error_handler import setup_enhanced_error_handling
 
