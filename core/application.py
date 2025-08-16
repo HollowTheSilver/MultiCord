@@ -94,6 +94,11 @@ class Application(commands.Bot):
         self._activity_index: int = 0
         self._shutdown_requested: bool = False  # Simple flag for shutdown
 
+        # Client-specific attributes (for multi-client support)
+        self.client_id: Optional[str] = None
+        self.client_branding: Dict[str, Any] = {}
+        self.client_features: Dict[str, Any] = {}
+
         # Error handler (will be set up in setup_hook)
         self.error_handler = None
         # Permissions manager (will be set up in setup_hook)
