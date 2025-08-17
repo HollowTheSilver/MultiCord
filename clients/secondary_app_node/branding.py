@@ -1,7 +1,7 @@
 """Client Branding Configuration"""
 BRANDING = {
-    "bot_name": "Link Guard 2",
-    "bot_description": "Link Guard Dev-Build-v2",
+    "bot_name": "Secondary Bot Node",
+    "bot_description": "Secondary processing node for advanced operations",
     "embed_colors": {
         "default": 0x3498db,
         "success": 0x2ecc71,
@@ -9,5 +9,5 @@ BRANDING = {
         "warning": 0xf39c12,
     },
     "status_messages": [("💻 Developed by Hollow", "custom")],
-    "footer_text": "Powered by Link Guard",
+    "footer_text": "Powered by Secondary Bot Node",
 }

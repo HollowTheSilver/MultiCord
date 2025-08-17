@@ -154,17 +154,85 @@ class ClientRunner:
             bot.logger.info(f"Loaded {loaded_count} custom cogs for client {self.client_id}")
 
     def _apply_branding(self, bot: Application) -> None:
-        """Apply client-specific branding to the bot."""
+        """
+        Apply client-specific branding to the bot with enhanced status message handling.
+
+        This method establishes branding.py as the single source of truth for status messages,
+        providing robust validation and fallback handling.
+        """
         if not self.branding:
+            bot.logger.warning("No branding configuration found, using defaults")
             return
 
         # Store branding in bot for use by embeds
         bot.client_branding = self.branding
         bot.client_id = self.client_id
 
-        # Apply any direct configuration overrides
-        if 'status_messages' in self.branding:
-            bot.config.STATUS_MESSAGES = self.branding['status_messages']
+        # ✅ ENHANCED STATUS MESSAGE HANDLING - Single Source of Truth
+        status_messages = self.branding.get('status_messages', [])
+
+        if status_messages:
+            bot.logger.info(f"Applying {len(status_messages)} status messages from branding.py", extra={
+                "client_id": self.client_id,
+                "status_count": len(status_messages),
+                "source": "branding.py"
+            })
+
+            # Validate and process status messages
+            validated_messages = []
+
+            for i, status_item in enumerate(status_messages):
+                try:
+                    # Handle both tuple format and string format
+                    if isinstance(status_item, (tuple, list)) and len(status_item) >= 2:
+                        message, status_type = status_item[0], status_item[1]
+                    elif isinstance(status_item, str):
+                        message, status_type = status_item, "custom"
+                    else:
+                        bot.logger.warning(f"Invalid status message format at index {i}: {status_item}")
+                        continue
+
+                    # Validate status type
+                    valid_types = ["playing", "watching", "listening", "streaming", "competing", "custom"]
+                    if status_type not in valid_types:
+                        bot.logger.warning(f"Invalid status type '{status_type}', defaulting to 'custom'")
+                        status_type = "custom"
+
+                    validated_messages.append((str(message.strip()), str(status_type)))
+                    bot.logger.debug(f"Validated status message: '{message}' ({status_type})")
+
+                except Exception as e:
+                    bot.logger.error(f"Error processing status message at index {i}: {e}")
+                    continue
+
+            if validated_messages:
+                # Override any .env STATUS_MESSAGES with branding.py values
+                bot.config.STATUS_MESSAGES = validated_messages
+                bot.logger.info(f"✅ Applied {len(validated_messages)} status messages from branding.py")
+            else:
+                bot.logger.warning("No valid status messages found in branding.py, using defaults")
+                bot.config.STATUS_MESSAGES = [("🤖 Professional Bot", "custom")]
+
+        else:
+            # No status messages in branding.py - use fallback
+            bot.logger.info("No status_messages in branding.py, using default")
+            bot.config.STATUS_MESSAGES = [("🤖 Professional Bot", "custom")]
+
+        # Apply other branding elements
+        if 'bot_name' in self.branding:
+            bot.config.BOT_NAME = self.branding['bot_name']
+            bot.logger.debug(f"Applied bot name: {self.branding['bot_name']}")
+
+        if 'embed_colors' in self.branding:
+            bot.client_embed_colors = self.branding['embed_colors']
+            bot.logger.debug("Applied custom embed colors")
+
+        bot.logger.info(f"✅ Branding applied successfully for client {self.client_id}", extra={
+            "client_id": self.client_id,
+            "bot_name": self.branding.get('bot_name', 'Unknown'),
+            "has_custom_colors": 'embed_colors' in self.branding,
+            "status_source": "branding.py"
+        })
 
     async def run(self) -> None:
         """Run the client bot instance."""
