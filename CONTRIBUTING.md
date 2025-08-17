@@ -87,7 +87,7 @@ Use descriptive branch names with prefixes:
    python platform_main.py --interactive
    
    # Test client creation
-   python -m platform.deployment_tools new-client
+   python -m bot_platform.deployment_tools new-client
    ```
 
 4. **Commit with clear format**
@@ -254,8 +254,8 @@ python platform_main.py --interactive
 python platform_main.py --client default
 
 # Client management
-python -m platform.deployment_tools new-client
-python -m platform.deployment_tools list-clients
+python -m bot_platform.deployment_tools new-client
+python -m bot_platform.deployment_tools list-clients
 
 # Core bot functionality
 # Test commands in Discord
@@ -339,7 +339,7 @@ Include:
 
 ```bash
 # Create test clients
-python -m platform.deployment_tools new-client
+python -m bot_platform.deployment_tools new-client
 # Configure with different plans/features
 
 # Test concurrent operation

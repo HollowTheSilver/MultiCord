@@ -40,7 +40,7 @@ python platform_main.py --client default
 
 ### 4. Create Additional Clients
 ```bash
-python -m platform.deployment_tools new-client
+python -m bot_platform.deployment_tools new-client
 ```
 
 ### 5. Start Full Platform
@@ -94,19 +94,19 @@ python platform_main.py
 ### Client Management
 ```bash
 # Create new client (interactive)
-python -m platform.deployment_tools new-client
+python -m bot_platform.deployment_tools new-client
 
 # List all clients
-python -m platform.deployment_tools list-clients
+python -m bot_platform.deployment_tools list-clients
 
 # Show platform status
-python -m platform.deployment_tools status
+python -m bot_platform.deployment_tools status
 
 # Update all clients
-python -m platform.deployment_tools update
+python -m bot_platform.deployment_tools update
 
 # Backup client data
-python -m platform.deployment_tools backup
+python -m bot_platform.deployment_tools backup
 ```
 
 ## 💼 Business Features (Example Template)
@@ -209,7 +209,7 @@ DEBUG_MODE=true python platform_main.py --client default
 python platform_main.py
 
 # Update deployment
-python -m platform.deployment_tools update
+python -m bot_platform.deployment_tools update
 ```
 
 ### Monitoring in Production

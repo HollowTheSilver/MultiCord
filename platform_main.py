@@ -23,8 +23,8 @@ from typing import Optional
 # Add project root to path for imports
 sys.path.insert(0, str(Path(__file__).parent))
 
-from platform.launcher import PlatformLauncher
-from platform.client_manager import ClientManager
+from bot_platform.launcher import PlatformLauncher
+from bot_platform.client_manager import ClientManager
 
 
 class PlatformMain:
@@ -229,7 +229,7 @@ class PlatformMain:
     async def _create_client_interactive(self) -> None:
         """Create a new client interactively."""
         print("🆕 Creating a new client...")
-        print("For detailed client creation, use: python -m platform.deployment_tools new-client")
+        print("For detailed client creation, use: python -m bot_platform.deployment_tools new-client")
 
         # Quick creation
         client_id = input("Client ID: ").strip().lower()
@@ -244,7 +244,7 @@ class PlatformMain:
 
         # Use deployment tools for full creation
         print("Please use the full onboarding tool for complete setup:")
-        print(f"  python -m platform.deployment_tools new-client")
+        print(f"  python -m bot_platform.deployment_tools new-client")
 
     async def _show_logs_interactive(self) -> None:
         """Show platform logs."""
