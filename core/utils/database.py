@@ -13,7 +13,7 @@ from typing import Dict, List, Optional, Any, Tuple, Union
 from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 
-from utils.exceptions import DatabaseError, DatabaseConnectionError, DatabaseQueryError
+from .exceptions import DatabaseError, DatabaseConnectionError, DatabaseQueryError
 
 
 class DatabaseManager:

@@ -19,9 +19,9 @@ import discord
 from discord.ext import commands
 from discord import app_commands
 
-from utils.loguruConfig import configure_logger
-from utils.exceptions import ValidationError, CommandError
-from utils.embeds import (
+from core.utils.loguruConfig import configure_logger
+from core.utils.exceptions import ValidationError, CommandError
+from core.utils.embeds import (
     create_success_embed,
     create_info_embed,
     create_warning_embed,

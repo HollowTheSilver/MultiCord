@@ -10,11 +10,11 @@ from datetime import datetime, timezone
 from typing import Dict, List, Optional, Any
 from dataclasses import asdict
 
-from utils.permission_models import (
+from .permission_models import (
     GuildPermissionConfig, PermissionLevel, RoleType,
     PermissionOverride, PermissionAuditEntry, PermissionScope
 )
-from utils.database import DatabaseManager
+from .database import DatabaseManager
 
 
 class PermissionPersistence:

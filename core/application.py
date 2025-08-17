@@ -30,12 +30,22 @@ import discord
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
 
-from .config.settings import BotConfig
-from .utils.loguruConfig import configure_logger
-from .utils.permission_models import PermissionLevel
-from .utils.permissions import setup_enhanced_permission_system
-from .utils.exceptions import BotError, ConfigurationError, ShutdownError
-from .utils.error_handler import setup_enhanced_error_handling
+try:
+    # Try relative imports first (when imported as module)
+    from .config.settings import BotConfig
+    from .utils.loguruConfig import configure_logger
+    from .utils.permission_models import PermissionLevel
+    from .utils.permissions import setup_enhanced_permission_system
+    from .utils.exceptions import BotError, ConfigurationError, ShutdownError
+    from .utils.error_handler import setup_enhanced_error_handling
+except ImportError:
+    # Fall back to absolute imports (when run as standalone script)
+    from core.config.settings import BotConfig
+    from core.utils.loguruConfig import configure_logger
+    from core.utils.permission_models import PermissionLevel
+    from core.utils.permissions import setup_enhanced_permission_system
+    from core.utils.exceptions import BotError, ConfigurationError, ShutdownError
+    from core.utils.error_handler import setup_enhanced_error_handling
 
 if TYPE_CHECKING:
     from loguru import Logger
@@ -158,7 +168,7 @@ class Application(commands.Bot):
 
     async def _load_extensions(self) -> None:
         """Load all cog extensions."""
-        cogs_dir = Path("cogs")
+        cogs_dir = Path("core/cogs")  # ✅ Fixed path
 
         if not cogs_dir.exists():
             self.logger.warning("Cogs directory not found, creating it...")
@@ -172,7 +182,7 @@ class Application(commands.Bot):
             if cog_file.name.startswith("_"):
                 continue
 
-            cog_name = f"cogs.{cog_file.stem}"
+            cog_name = f"core.cogs.{cog_file.stem}"  # ✅ Fixed module path
 
             try:
                 await self.load_extension(cog_name)

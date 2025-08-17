@@ -37,12 +37,12 @@ except ImportError:
     def unidecode(text: str) -> str:
         return unicodedata.normalize('NFKD', text).encode('ascii', 'ignore').decode('ascii')
 
-from utils.exceptions import PermissionError, ValidationError
-from utils.database import DatabaseManager
-from utils.embeds import create_error_embed, create_warning_embed, create_success_embed, create_info_embed
+from .exceptions import PermissionError, ValidationError
+from .database import DatabaseManager
+from .embeds import create_error_embed, create_warning_embed, create_success_embed, create_info_embed
 
 # Import shared models
-from utils.permission_models import (
+from .permission_models import (
     PermissionLevel, PermissionScope, RoleType, RoleCategory, ChannelType,
     PermissionNode, PermissionOverride, GuildPermissionConfig,
     PermissionAuditEntry, RoleAnalysis
@@ -54,7 +54,7 @@ from utils.permission_models import (
 # Import PermissionPersistence after models are available
 def _get_permission_persistence():
     """Lazy import to avoid circular dependencies."""
-    from utils.permission_persistence import PermissionPersistence
+    from .permission_persistence import PermissionPersistence
     return PermissionPersistence
 
 

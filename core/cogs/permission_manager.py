@@ -12,15 +12,15 @@ from discord.ext import commands
 from discord import app_commands
 from typing import Optional, Union, List
 
-from utils.loguruConfig import configure_logger
-from utils.permission_models import PermissionLevel, RoleType
-from utils.permissions import (
+from core.utils.loguruConfig import configure_logger
+from core.utils.permission_models import PermissionLevel, RoleType
+from core.utils.permissions import (
     require_permission,
     require_level,
     EnhancedPermissionManager,
     normalize_discord_text
 )
-from utils.embeds import (
+from core.utils.embeds import (
     create_success_embed,
     create_info_embed,
     create_warning_embed,
@@ -28,7 +28,7 @@ from utils.embeds import (
     EmbedBuilder,
     EmbedType
 )
-from utils.exceptions import ValidationError
+from core.utils.exceptions import ValidationError
 
 
 class PermissionManager(commands.Cog):

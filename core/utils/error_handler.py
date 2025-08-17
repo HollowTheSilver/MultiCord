@@ -13,14 +13,14 @@ from datetime import datetime, timezone
 import discord
 from discord.ext import commands
 
-from utils.embeds import (
+from .embeds import (
     create_error_embed,
     create_warning_embed,
     create_permission_error_embed,
     EmbedBuilder,
     EmbedType
 )
-from utils.exceptions import (
+from .exceptions import (
     BotError,
     CommandError,
     ValidationError,
