@@ -1,8 +1,23 @@
 {
+  "platform": {
+    "name": "Multi-Client Discord Bot Platform",
+    "version": "2.0.1",
+    "last_updated": "2025-08-17T10:40:01.905689"
+  },
   "clients": [
     {
       "client_id": "default",
       "display_name": "Default Client",
+      "enabled": true,
+      "auto_restart": true,
+      "max_restarts": 5,
+      "restart_delay": 30,
+      "memory_limit_mb": 512,
+      "custom_env": {}
+    },
+    {
+      "client_id": "secondary_app_node",
+      "display_name": "Secondary App Node",
       "enabled": true,
       "auto_restart": true,
       "max_restarts": 5,

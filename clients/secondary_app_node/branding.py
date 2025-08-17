@@ -1,6 +1,6 @@
-"""Default Client Branding Configuration"""
+"""Client Branding Configuration"""
 BRANDING = {
-    "bot_name": "Link Guard",
+    "bot_name": "Link Guard 2",
     "bot_description": "Link Guard Dev-Build-v2",
     "embed_colors": {
         "default": 0x3498db,

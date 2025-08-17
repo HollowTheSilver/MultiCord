@@ -1,0 +1,14 @@
+{
+  "default": {
+    "pid": 19224,
+    "started_at": "2025-08-17T14:39:55.278616+00:00",
+    "restart_count": 0,
+    "last_updated": "2025-08-17T10:39:55.281616"
+  },
+  "secondary_app_node": {
+    "pid": 29676,
+    "started_at": "2025-08-17T14:39:55.281616+00:00",
+    "restart_count": 0,
+    "last_updated": "2025-08-17T10:39:55.281616"
+  }
+}

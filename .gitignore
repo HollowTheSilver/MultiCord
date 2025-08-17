@@ -1,4 +1,24 @@
-# Custom
+# ========================================
+# Multi-Client Discord Bot Platform
+# ========================================
+
+# Platform management and runtime data
+bot_platform/logs/
+bot_platform/runtime/
+bot_platform/clients.json
+platform_config.json
+
+# Client-specific data (contains secrets and user data)
+clients/*/data/
+clients/*/.env
+clients/*/logs/
+
+# Platform backups and archives
+backups/
+
+# Process management
+*.pid
+*.lock
 
 
 # Byte-compiled / optimized / DLL files

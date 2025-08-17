@@ -4,7 +4,8 @@ Fix Platform Naming Conflict
 ============================
 
 Renames platform/ directory and updates all import references to avoid
-conflict with Python's built-in platform module.
+conflict with Python's built-in platform module. Also migrates any
+platform runtime files created during testing.
 """
 
 import os
@@ -12,12 +13,48 @@ import shutil
 from pathlib import Path
 
 
+def migrate_platform_runtime_files():
+    """Migrate platform runtime and data files to new location."""
+    print("🔄 Migrating platform runtime files...")
+
+    # Files and directories to migrate from old platform/ to bot_platform/
+    migrations = [
+        ("platform/runtime/", "bot_platform/runtime/"),
+        ("platform/clients.json", "bot_platform/clients.json"),
+        ("platform/logs/", "bot_platform/logs/"),
+    ]
+
+    migrated_count = 0
+    for old_path, new_path in migrations:
+        old_file = Path(old_path)
+        if old_file.exists():
+            new_file = Path(new_path)
+            new_file.parent.mkdir(parents=True, exist_ok=True)
+
+            try:
+                if old_file.is_dir():
+                    shutil.copytree(old_file, new_file, dirs_exist_ok=True)
+                    shutil.rmtree(old_file)
+                    print(f"   Moved directory: {old_path} → {new_path}")
+                else:
+                    shutil.move(str(old_file), str(new_file))
+                    print(f"   Moved file: {old_path} → {new_path}")
+                migrated_count += 1
+            except Exception as e:
+                print(f"   ⚠️ Could not migrate {old_path}: {e}")
+
+    if migrated_count == 0:
+        print("   No runtime files found to migrate")
+    else:
+        print(f"   Migrated {migrated_count} platform runtime items")
+
+
 def fix_naming_conflict():
     """Fix the platform directory naming conflict."""
 
     # Configuration
     OLD_NAME = "platform"
-    NEW_NAME = "bot_platform"  # Change this if you prefer a different name
+    NEW_NAME = "bot_platform"
 
     print(f"🔧 Fixing naming conflict: {OLD_NAME}/ → {NEW_NAME}/")
 
@@ -30,8 +67,9 @@ def fix_naming_conflict():
             print("❌ Operation cancelled")
             return False
     else:
-        shutil.copytree(OLD_NAME, backup_name)
-        print(f"💾 Created backup: {backup_name}/")
+        if Path(OLD_NAME).exists():
+            shutil.copytree(OLD_NAME, backup_name)
+            print(f"💾 Created backup: {backup_name}/")
 
     # Step 1: Check if source directory exists
     old_path = Path(OLD_NAME)
@@ -39,10 +77,14 @@ def fix_naming_conflict():
 
     if not old_path.exists():
         print(f"❌ Source directory {OLD_NAME}/ not found!")
+        # Still try to migrate runtime files if they exist
+        migrate_platform_runtime_files()
         return False
 
     if new_path.exists():
         print(f"❌ Target directory {NEW_NAME}/ already exists!")
+        # Still try to migrate runtime files if they exist
+        migrate_platform_runtime_files()
         return False
 
     # Step 2: Define what will be changed
@@ -125,7 +167,10 @@ def fix_naming_conflict():
     else:
         print("ℹ️  No import statements needed updating")
 
-    # Step 6: Update README and documentation
+    # Step 6: Migrate runtime files that may have been created during testing
+    migrate_platform_runtime_files()
+
+    # Step 7: Update README and documentation
     readme_files = ["README.md", "CONTRIBUTING.md"]
 
     for readme_file in readme_files:
