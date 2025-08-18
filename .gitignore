@@ -8,10 +8,18 @@ bot_platform/runtime/
 bot_platform/clients.json
 platform_config.json
 
-# Client-specific data (contains secrets and user data)
-clients/*/data/
+# Client-specific configuration files (contain Discord tokens)
+clients/*/config.json
 clients/*/.env
+
+# But keep the template files
+!clients/_template/
+!clients/_template/*
+
+# Client-specific runtime data
 clients/*/logs/
+clients/*/data/
+clients/*/permissions.db
 
 # Platform backups and archives
 backups/

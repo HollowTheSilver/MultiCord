@@ -1,8 +1,22 @@
 {
   "platform": {
     "name": "Multi-Client Discord Bot Platform",
-    "version": "2.0.1",
-    "last_updated": "2025-08-17T23:37:15.477992"
+    "version": "2.0.2",
+    "last_updated": "2025-08-18T02:38:10.247728"
+  },
+  "auto_healing": {
+    "enabled": true,
+    "sync_directory_to_database": true,
+    "create_missing_directories": true,
+    "fix_template_substitution": true,
+    "register_orphaned_processes": true,
+    "backup_before_changes": true,
+    "max_auto_fixes_per_startup": 10
+  },
+  "logging": {
+    "startup_verbosity": "INFO",
+    "show_config_validation": true,
+    "show_auto_healing_actions": true
   },
   "clients": [
     {

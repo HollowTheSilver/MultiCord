@@ -1,6 +1,12 @@
 """
 Platform Launcher
 ================================================
+
+Professional multi-client Discord bot launcher with comprehensive
+auto-detection, health monitoring, and auto-healing capabilities.
+
+This is the complete, consolidated launcher that replaces both the
+original launcher.py and enhanced_launcher.py files.
 """
 
 import asyncio
@@ -11,8 +17,10 @@ import subprocess
 import psutil
 import json
 import time
+import re
+import shutil
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Set, Tuple
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 
@@ -57,20 +65,20 @@ class ClientConfig:
 
 
 class PlatformLauncher:
-    """Multi-client Discord bot launcher with corrected directory paths."""
+    """Professional multi-client Discord bot launcher with comprehensive features."""
 
     def __init__(self, config_path: str = "platform_config.json"):
-        """Initialize the platform launcher."""
+        """Initialize the platform launcher with all capabilities."""
         self.config_path = Path(config_path)
         self.clients_dir = Path("clients")
         self.core_dir = Path("core")
 
-        # Process tracking files - FIXED PATHS
+        # Process tracking files
         self.runtime_dir = Path("bot_platform/runtime")
         self.runtime_dir.mkdir(parents=True, exist_ok=True)
         self.process_registry = self.runtime_dir / "client_processes.json"
 
-        # Client manager database for synchronization - FIXED PATH
+        # Client manager database for synchronization
         self.client_manager_db = Path("bot_platform/clients.json")
 
         # Process management
@@ -83,7 +91,7 @@ class PlatformLauncher:
         self.total_restarts = 0
         self.last_health_check = None
 
-        # Setup logging - FIXED PATH
+        # Setup logging
         self.logger = configure_logger(
             log_dir="bot_platform/logs",
             level="INFO",
@@ -91,271 +99,1057 @@ class PlatformLauncher:
             discord_compat=True
         )
 
-        # Load configuration with synchronization
-        self._load_synchronized_config()
+        # Auto-healing configuration and tracking
+        self.auto_healing_config = self._load_auto_healing_config()
+        self.client_health_status = {}
+        self.auto_fix_log = []
+
+        # Load configuration with comprehensive discovery and auto-healing
+        self._load_synchronized_config_enhanced()
         self._discover_running_clients()
         self._setup_signal_handlers()
 
-    def _load_synchronized_config(self) -> None:
-        """Load platform configuration synchronized with client manager database."""
-        # First, discover all clients from multiple sources
-        discovered_clients = {}
+    def _load_auto_healing_config(self) -> Dict[str, Any]:
+        """Load auto-healing configuration with sensible defaults."""
+        defaults = {
+            "enabled": True,
+            "sync_directory_to_database": True,
+            "create_missing_directories": True,
+            "fix_template_substitution": True,
+            "register_orphaned_processes": True,
+            "backup_before_changes": True,
+            "max_auto_fixes_per_startup": 10
+        }
 
-        # Source 1: Directory scanning
-        discovered_clients.update(self._scan_client_directories())
+        try:
+            if self.config_path.exists():
+                with open(self.config_path, 'r', encoding='utf-8') as f:
+                    config = json.load(f)
+                    auto_healing = config.get("auto_healing", {})
+                    # Merge with defaults
+                    for key, value in defaults.items():
+                        if key not in auto_healing:
+                            auto_healing[key] = value
+                    return auto_healing
+        except Exception as e:
+            self.logger.debug(f"Could not load auto-healing config: {e}")
 
-        # Source 2: Client manager database
-        discovered_clients.update(self._load_from_client_manager_db())
+        return defaults
 
-        # Source 3: Existing platform config
-        discovered_clients.update(self._load_existing_platform_config())
+    def set_auto_healing_enabled(self, enabled: bool, source: str = "manual") -> None:
+        """Set auto-healing enabled state with proper logging."""
+        old_state = self.auto_healing_config["enabled"]
+        self.auto_healing_config["enabled"] = enabled
 
-        # Update client configs with discovered clients
-        self.client_configs = discovered_clients
+        if old_state != enabled:
+            action = "enabled" if enabled else "disabled"
+            self.logger.info(f"🔧 Auto-healing {action} via {source}")
 
-        # Save updated platform config
+            # Log for debugging
+            self.logger.debug(f"🔍 Auto-healing state changed: {old_state} -> {enabled} (source: {source})")
+
+    def _load_synchronized_config_enhanced(self) -> None:
+        """Enhanced config loading with auto-detection and auto-healing."""
+        self.logger.info("🔍 Discovering clients from all sources...")
+
+        # Step 1: Discover from all sources
+        discovery_results = self._comprehensive_client_discovery()
+
+        # Step 2: Analyze inconsistencies
+        inconsistencies = self._analyze_client_inconsistencies(discovery_results)
+
+        # Step 3: Auto-heal if enabled
+        fixed_count = 0
+        if self.auto_healing_config["enabled"] and inconsistencies:
+            fixed_count = self._auto_heal_inconsistencies(inconsistencies)
+
+        # Step 4: Report issues that couldn't be auto-fixed
+        self._report_remaining_issues(inconsistencies, fixed_count)
+
+        # Step 5: Final configuration merge
+        self.client_configs = self._merge_all_client_sources(discovery_results)
+
+        # Step 6: Initialize health tracking
+        self._initialize_health_tracking()
+
+        # Step 7: Save updated configuration
         self._save_platform_config()
 
-        self.logger.info(f"Loaded configuration for {len(self.client_configs)} clients")
+        # Step 8: Success summary
+        total_clients = len(self.client_configs)
+        discovery_results_summary = {
+            'directories': len(discovery_results.get('directories', {})),
+            'database': len(discovery_results.get('database', {})),
+            'config': len(discovery_results.get('config', {})),
+            'running': len(discovery_results.get('running', {}))
+        }
 
-    def _scan_client_directories(self) -> Dict[str, ClientConfig]:
-        """Scan client directories and create configurations."""
-        configs = {}
+        self.logger.info(f"📊 Discovery results: {discovery_results_summary['directories']} directories, "
+                        f"{discovery_results_summary['database']} in database, "
+                        f"{discovery_results_summary['config']} in config, "
+                        f"{discovery_results_summary['running']} running")
 
-        if not self.clients_dir.exists():
-            self.logger.debug("Clients directory not found")
-            return configs
+        if fixed_count > 0:
+            self.logger.info(f"✅ Platform ready with {total_clients} clients (auto-fixed {fixed_count} issues)")
+        else:
+            self.logger.info(f"✅ Platform ready with {total_clients} clients")
 
-        for client_dir in self.clients_dir.iterdir():
-            if client_dir.is_dir() and not client_dir.name.startswith("_"):
-                client_id = client_dir.name
-                configs[client_id] = ClientConfig(
-                    client_id=client_id,
-                    display_name=client_id.title().replace('_', ' ')
-                )
+    def _comprehensive_client_discovery(self) -> Dict[str, Dict[str, Any]]:
+        """Enhanced comprehensive client discovery from all sources."""
+        discovery_results = {
+            'directories': {},
+            'database': {},
+            'config': {},
+            'running': {}
+        }
 
-        if configs:
-            self.logger.debug(f"Found {len(configs)} clients from directory scan")
-        return configs
+        # 1. Discover from client directories - FIXED LOGIC
+        if self.clients_dir.exists():
+            for client_dir in self.clients_dir.iterdir():
+                if client_dir.is_dir() and not client_dir.name.startswith('_'):
+                    # Check for required files
+                    required_files = ['config.json', '.env']
+                    existing_files = []
+                    missing_files = []
 
-    def _load_from_client_manager_db(self) -> Dict[str, ClientConfig]:
-        """Load clients from client manager database for synchronization."""
-        configs = {}
+                    for req_file in required_files:
+                        file_path = client_dir / req_file
+                        if file_path.exists():
+                            existing_files.append(req_file)
+                        else:
+                            missing_files.append(req_file)
 
-        if not self.client_manager_db.exists():
-            self.logger.debug("Client manager database not found")
-            return configs
+                    discovery_results['directories'][client_dir.name] = {
+                        'source': 'directory',
+                        'path': str(client_dir),
+                        'existing_files': existing_files,
+                        'missing_files': missing_files,
+                        'is_complete': len(missing_files) == 0,
+                        'last_modified': client_dir.stat().st_mtime
+                    }
+
+        # 2. Discover from client manager database
+        if self.client_manager_db.exists():
+            try:
+                with open(self.client_manager_db, 'r', encoding='utf-8') as f:
+                    db_data = json.load(f)
+                for client_id, client_data in db_data.get('clients', {}).items():
+                    discovery_results['database'][client_id] = {
+                        'source': 'database',
+                        'data': client_data,
+                        'last_updated': client_data.get('last_updated')
+                    }
+            except Exception as e:
+                self.logger.debug(f"Could not read client database: {e}")
+
+        # 3. Discover from platform config
+        if self.config_path.exists():
+            try:
+                with open(self.config_path, 'r', encoding='utf-8') as f:
+                    platform_config = json.load(f)
+                for client_data in platform_config.get('clients', []):
+                    client_id = client_data.get('client_id')
+                    if client_id:
+                        discovery_results['config'][client_id] = {
+                            'source': 'config',
+                            'data': client_data
+                        }
+            except Exception as e:
+                self.logger.debug(f"Could not read platform config: {e}")
+
+        # 4. Discover running processes
+        discovery_results['running'] = self._discover_running_client_processes()
+
+        return discovery_results
+
+    def _discover_running_client_processes(self) -> Dict[str, Dict[str, Any]]:
+        """Discover running client processes."""
+        running_clients = {}
 
         try:
-            with open(self.client_manager_db, 'r', encoding='utf-8') as f:
-                client_data = json.load(f)
-
-            for client_id, info in client_data.items():
-                configs[client_id] = ClientConfig(
-                    client_id=client_id,
-                    display_name=info.get('display_name', client_id.title()),
-                    enabled=info.get('status', 'active') == 'active'
-                )
-
-            if configs:
-                self.logger.debug(f"Loaded {len(configs)} clients from client manager database")
-
+            for proc in psutil.process_iter(['pid', 'name', 'cmdline', 'create_time']):
+                try:
+                    cmdline = proc.info['cmdline']
+                    if cmdline and len(cmdline) >= 2:
+                        # Look for client runner processes
+                        if 'client_runner.py' in ' '.join(cmdline):
+                            for arg in cmdline:
+                                if arg.startswith('--client='):
+                                    client_id = arg.split('=', 1)[1]
+                                    running_clients[client_id] = {
+                                        'source': 'running',
+                                        'pid': proc.info['pid'],
+                                        'started_at': proc.info['create_time'],
+                                        'cmdline': cmdline
+                                    }
+                                    break
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
         except Exception as e:
-            self.logger.debug(f"Could not load client manager database: {e}")
+            self.logger.debug(f"Error discovering running processes: {e}")
 
-        return configs
+        return running_clients
 
-    def _load_existing_platform_config(self) -> Dict[str, ClientConfig]:
-        """Load existing platform configuration."""
-        configs = {}
+    def _analyze_client_inconsistencies(self, discovery_results: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Enhanced analysis of client inconsistencies."""
+        inconsistencies = []
 
-        if not self.config_path.exists():
-            return configs
+        # Get all unique client IDs
+        all_client_ids = set()
+        for source in discovery_results.values():
+            all_client_ids.update(source.keys())
+
+        for client_id in all_client_ids:
+            issues = []
+
+            # Check if client exists in different sources
+            in_directories = client_id in discovery_results['directories']
+            in_database = client_id in discovery_results['database']
+            in_config = client_id in discovery_results['config']
+            in_running = client_id in discovery_results['running']
+
+            # Check for missing directory
+            if not in_directories and (in_database or in_config):
+                issues.append({
+                    'type': 'missing_directory',
+                    'description': f"Client {client_id} exists in database/config but missing directory",
+                    'fix_action': 'create_complete_client_from_template'
+                })
+
+            # Check for incomplete directory (missing files) - THIS IS THE KEY FIX
+            elif in_directories:
+                dir_info = discovery_results['directories'][client_id]
+                if not dir_info['is_complete']:
+                    missing_files = dir_info['missing_files']
+                    issues.append({
+                        'type': 'missing_critical_files',
+                        'description': f"Client {client_id} missing files: {missing_files}",
+                        'fix_action': 'complete_client_files_from_template',
+                        'missing_files': missing_files
+                    })
+
+            # Check for database sync issues
+            if in_directories and not in_database:
+                issues.append({
+                    'type': 'missing_database_entry',
+                    'description': f"Client {client_id} has directory but not in database",
+                    'fix_action': 'add_to_database'
+                })
+
+            if issues:
+                inconsistencies.append({
+                    'client_id': client_id,
+                    'issues': issues,
+                    'sources': {
+                        'directories': in_directories,
+                        'database': in_database,
+                        'config': in_config,
+                        'running': in_running
+                    }
+                })
+
+        return inconsistencies
+
+    def _auto_heal_inconsistencies(self, inconsistencies: List[Dict[str, Any]]) -> int:
+        """Auto-heal detected inconsistencies."""
+        fixed_count = 0
+        max_fixes = self.auto_healing_config.get('max_auto_fixes_per_startup', 10)
+
+        for inconsistency in inconsistencies:
+            if fixed_count >= max_fixes:
+                self.logger.warning(f"⚠️ Reached max auto-fixes limit ({max_fixes}), skipping remaining issues")
+                break
+
+            client_id = inconsistency['client_id']
+
+            for issue in inconsistency['issues']:
+                if fixed_count >= max_fixes:
+                    break
+
+                try:
+                    if self._apply_auto_fix(client_id, issue):
+                        fixed_count += 1
+                        self.auto_fix_log.append({
+                            'timestamp': datetime.now().isoformat(),
+                            'client_id': client_id,
+                            'issue_type': issue['type'],
+                            'description': issue['description'],
+                            'fix_applied': issue['fix_action']
+                        })
+                except Exception as e:
+                    self.logger.error(f"❌ Auto-fix failed for {client_id} ({issue['type']}): {e}")
+
+        return fixed_count
+
+    def _apply_auto_fix(self, client_id: str, issue: Dict[str, Any]) -> bool:
+        """Apply comprehensive auto-fixes."""
+        fix_action = issue['fix_action']
 
         try:
-            with open(self.config_path, 'r', encoding='utf-8') as f:
-                config_data = json.load(f)
+            if fix_action == 'create_complete_client_from_template':
+                return self._create_complete_client_from_template(client_id)
+            elif fix_action == 'complete_client_files_from_template':
+                return self._complete_client_files_from_template(client_id, issue.get('missing_files', []))
+            elif fix_action == 'add_to_database':
+                return self._add_client_to_database(client_id)
 
-            for client_data in config_data.get("clients", []):
-                client_config = ClientConfig(**client_data)
-                configs[client_config.client_id] = client_config
+            return False
+        except Exception as e:
+            self.logger.error(f"Auto-fix failed for {client_id} ({fix_action}): {e}")
+            return False
 
-            if configs:
-                self.logger.debug(f"Loaded {len(configs)} clients from existing platform config")
+    def _create_client_directory_from_template(self, client_id: str) -> bool:
+        """Create client directory from template."""
+        if not self.auto_healing_config.get('create_missing_directories', True):
+            return False
+
+        template_dir = self.clients_dir / "_template"
+        client_dir = self.clients_dir / client_id
+
+        if not template_dir.exists():
+            self.logger.error(f"❌ Template directory not found: {template_dir}")
+            return False
+
+        if client_dir.exists():
+            self.logger.debug(f"Client directory already exists: {client_dir}")
+            return True
+
+        try:
+            # Create backup if enabled
+            if self.auto_healing_config.get('backup_before_changes', True):
+                self._create_backup(f"before_create_{client_id}")
+
+            # Copy template
+            shutil.copytree(template_dir, client_dir)
+
+            # Fix template substitutions
+            self._fix_template_substitution(client_id)
+
+            self.logger.info(f"✅ Auto-created client directory: {client_id}")
+            return True
 
         except Exception as e:
-            self.logger.debug(f"Could not load existing platform config: {e}")
+            self.logger.error(f"❌ Failed to create client directory {client_id}: {e}")
+            return False
 
-        return configs
+    def _add_client_to_database(self, client_id: str) -> bool:
+        """Add client to database."""
+        if not self.auto_healing_config.get('sync_directory_to_database', True):
+            return False
+
+        try:
+            # Import here to avoid circular imports
+            from bot_platform.client_manager import ClientManager
+
+            client_manager = ClientManager()
+
+            # Create basic client configuration
+            client_config = {
+                'client_id': client_id,
+                'display_name': client_id.replace('_', ' ').title(),
+                'enabled': True,
+                'auto_restart': True,
+                'created_at': datetime.now().isoformat(),
+                'last_updated': datetime.now().isoformat()
+            }
+
+            success = client_manager.create_client(client_config)
+            if success:
+                self.logger.info(f"✅ Auto-added client to database: {client_id}")
+                return True
+            else:
+                self.logger.error(f"❌ Failed to add client to database: {client_id}")
+                return False
+
+        except Exception as e:
+            self.logger.error(f"❌ Error adding client to database {client_id}: {e}")
+            return False
+
+    def _fix_template_substitution(self, client_id: str) -> bool:
+        """Fix template substitution in client files."""
+        if not self.auto_healing_config.get('fix_template_substitution', True):
+            return False
+
+        client_dir = self.clients_dir / client_id
+        if not client_dir.exists():
+            return False
+
+        try:
+            fixed_files = []
+
+            # Process all files in client directory
+            for file_path in client_dir.rglob('*'):
+                if file_path.is_file() and file_path.suffix in ['.json', '.py', '.txt', '.md']:
+                    try:
+                        with open(file_path, 'r', encoding='utf-8') as f:
+                            content = f.read()
+
+                        original_content = content
+
+                        # Replace template placeholders
+                        content = content.replace('{{CLIENT_ID}}', client_id)
+                        content = content.replace('{{CLIENT_NAME}}', client_id.replace('_', ' ').title())
+
+                        if content != original_content:
+                            with open(file_path, 'w', encoding='utf-8') as f:
+                                f.write(content)
+                            fixed_files.append(str(file_path.relative_to(client_dir)))
+
+                    except Exception as e:
+                        self.logger.debug(f"Could not process file {file_path}: {e}")
+
+            if fixed_files:
+                self.logger.info(f"✅ Auto-fixed template substitution in {client_id}: {', '.join(fixed_files)}")
+                return True
+
+            return True  # No fixes needed, but no error
+
+        except Exception as e:
+            self.logger.error(f"❌ Failed to fix template substitution for {client_id}: {e}")
+            return False
+
+    def _complete_client_files_from_template(self, client_id: str, missing_files: List[str]) -> bool:
+        """Complete missing files in existing client directory."""
+        template_dir = self.clients_dir / "_template"
+        client_dir = self.clients_dir / client_id
+
+        if not template_dir.exists():
+            self.logger.error(f"❌ Template directory not found: {template_dir}")
+            return False
+
+        if not client_dir.exists():
+            return self._create_complete_client_from_template(client_id)
+
+        try:
+            # Create backup if enabled
+            if self.auto_healing_config.get('backup_before_changes', True):
+                self._create_backup(f"before_complete_{client_id}")
+
+            files_created = []
+
+            for missing_file in missing_files:
+                if missing_file == 'config.json':
+                    # Look for config.json.template first, then config.json
+                    template_file = template_dir / 'config.json.template'
+                    if not template_file.exists():
+                        template_file = template_dir / 'config.json'
+
+                    if template_file.exists():
+                        target_file = client_dir / 'config.json'
+                        shutil.copy2(template_file, target_file)
+
+                        # Apply template substitution
+                        self._process_template_file(target_file, client_id)
+                        files_created.append('config.json')
+                        self.logger.info(f"✅ Created {missing_file} for {client_id}")
+                    else:
+                        # Create from scratch
+                        self._create_config_json_from_scratch(client_id)
+                        files_created.append('config.json')
+
+            if files_created:
+                self.logger.info(f"✅ Auto-completed client files for {client_id}: {files_created}")
+                return True
+            else:
+                self.logger.warning(f"⚠️ No files could be created for {client_id}")
+                return False
+
+        except Exception as e:
+            self.logger.error(f"❌ Failed to complete client files for {client_id}: {e}")
+            return False
+
+    def _create_complete_client_from_template(self, client_id: str) -> bool:
+        """Create complete client directory from template with all files."""
+        if not self.auto_healing_config.get('create_missing_directories', True):
+            return False
+
+        template_dir = self.clients_dir / "_template"
+        client_dir = self.clients_dir / client_id
+
+        if not template_dir.exists():
+            self.logger.error(f"❌ Template directory not found: {template_dir}")
+            return False
+
+        if client_dir.exists():
+            self.logger.debug(f"Client directory already exists: {client_dir}")
+            # If directory exists, just complete missing files
+            return self._complete_client_files_from_template(client_id, ['config.json'])
+
+        try:
+            # Create backup if enabled
+            if self.auto_healing_config.get('backup_before_changes', True):
+                self._create_backup(f"before_create_{client_id}")
+
+            # Copy entire template directory
+            shutil.copytree(template_dir, client_dir)
+
+            # Process all template files
+            self._process_all_template_files(client_dir, client_id)
+
+            self.logger.info(f"✅ Auto-created complete client: {client_id}")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"❌ Failed to create complete client {client_id}: {e}")
+            return False
+
+    def _create_config_json_from_scratch(self, client_id: str) -> bool:
+        """Create config.json from scratch when no template exists."""
+        client_dir = self.clients_dir / client_id
+        config_file = client_dir / 'config.json'
+
+        try:
+            config_data = {
+                "client_id": client_id,
+                "display_name": client_id.replace('_', ' ').title(),
+                "enabled": True,
+                "discord": {
+                    "token": "YOUR_DISCORD_TOKEN_HERE",
+                    "intents": {
+                        "guilds": True,
+                        "guild_messages": True,
+                        "message_content": True
+                    }
+                },
+                "features": {
+                    "auto_restart": True,
+                    "logging_level": "INFO",
+                    "command_prefix": "!"
+                },
+                "created_at": datetime.now().isoformat(),
+                "last_updated": datetime.now().isoformat()
+            }
+
+            with open(config_file, 'w', encoding='utf-8') as f:
+                json.dump(config_data, f, indent=2, ensure_ascii=False)
+
+            self.logger.info(f"✅ Created config.json from scratch for {client_id}")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"❌ Failed to create config.json for {client_id}: {e}")
+            return False
+
+    def _process_template_file(self, file_path: Path, client_id: str) -> None:
+        """Process template substitution for a single file."""
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            # Template substitution variables
+            substitutions = {
+                '{CLIENT_ID}': client_id,
+                '{DISPLAY_NAME}': client_id.replace('_', ' ').title(),
+                '{CREATED_AT}': datetime.now().isoformat(),
+                '{PLAN}': 'basic'  # Default plan
+            }
+
+            # Apply substitutions
+            for template_var, replacement in substitutions.items():
+                content = content.replace(template_var, replacement)
+
+            # Write back
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+
+            self.logger.debug(f"Applied template substitution to {file_path.name}")
+
+        except Exception as e:
+            self.logger.error(f"Failed to process template file {file_path}: {e}")
+
+    def _process_all_template_files(self, client_dir: Path, client_id: str) -> None:
+        """Process template substitution for all files in client directory."""
+
+        # Template substitution variables
+        substitutions = {
+            '{CLIENT_ID}': client_id,
+            '{DISPLAY_NAME}': client_id.replace('_', ' ').title(),
+            '{CREATED_AT}': datetime.now().isoformat(),
+            '{PLAN}': 'basic'  # Default plan
+        }
+
+        # Process all files recursively
+        for file_path in client_dir.rglob('*'):
+            if file_path.is_file():
+                # Handle .template files (rename and substitute)
+                if file_path.suffix == '.template':
+                    # Determine target filename (config.json.template -> config.json)
+                    base_name = file_path.stem  # filename without .template
+                    target_file = file_path.parent / base_name
+
+                    try:
+                        # Read template content
+                        with open(file_path, 'r', encoding='utf-8') as f:
+                            content = f.read()
+
+                        # Apply substitutions
+                        for template_var, replacement in substitutions.items():
+                            content = content.replace(template_var, replacement)
+
+                        # Write to target file
+                        with open(target_file, 'w', encoding='utf-8') as f:
+                            f.write(content)
+
+                        # Remove the .template file
+                        file_path.unlink()
+
+                        self.logger.debug(f"Processed template: {file_path.name} -> {target_file.name}")
+
+                    except Exception as e:
+                        self.logger.error(f"Failed to process template {file_path}: {e}")
+
+                # Handle regular files that might contain template variables
+                elif file_path.suffix in ['.json', '.py', '.env', '.txt', '.md']:
+                    try:
+                        with open(file_path, 'r', encoding='utf-8') as f:
+                            content = f.read()
+
+                        original_content = content
+
+                        # Apply substitutions
+                        for template_var, replacement in substitutions.items():
+                            content = content.replace(template_var, replacement)
+
+                        # Write back if changed
+                        if content != original_content:
+                            with open(file_path, 'w', encoding='utf-8') as f:
+                                f.write(content)
+
+                            self.logger.debug(f"Applied template substitution to {file_path.relative_to(client_dir)}")
+
+                    except Exception as e:
+                        self.logger.debug(f"Could not process template file {file_path}: {e}")
+
+    def _create_backup(self, backup_name: str) -> None:
+        """Create backup of current state."""
+        try:
+            backup_dir = Path("bot_platform/backups") / f"{backup_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            backup_dir.mkdir(parents=True, exist_ok=True)
+
+            # Backup configuration files
+            if self.config_path.exists():
+                shutil.copy2(self.config_path, backup_dir / "platform_config.json")
+
+            if self.client_manager_db.exists():
+                shutil.copy2(self.client_manager_db, backup_dir / "clients.json")
+
+            self.logger.debug(f"Created backup: {backup_dir}")
+
+        except Exception as e:
+            self.logger.error(f"Failed to create backup: {e}")
+
+    def _report_remaining_issues(self, inconsistencies: List[Dict[str, Any]], fixed_count: int) -> None:
+        """Report issues that couldn't be auto-fixed."""
+        remaining_issues = []
+
+        for inconsistency in inconsistencies[fixed_count:]:
+            for issue in inconsistency['issues']:
+                remaining_issues.append(f"{inconsistency['client_id']}: {issue['description']}")
+
+        if remaining_issues:
+            self.logger.warning(f"⚠️ {len(remaining_issues)} issues could not be auto-fixed:")
+            for issue in remaining_issues[:5]:  # Show first 5
+                self.logger.warning(f"  • {issue}")
+            if len(remaining_issues) > 5:
+                self.logger.warning(f"  • ... and {len(remaining_issues) - 5} more")
+
+    def _merge_all_client_sources(self, discovery_results: Dict[str, Dict[str, Any]]) -> Dict[str, ClientConfig]:
+        """Merge client information from all sources into final configuration."""
+        merged_configs = {}
+
+        # Get all unique client IDs
+        all_client_ids = set()
+        for source in discovery_results.values():
+            all_client_ids.update(source.keys())
+
+        for client_id in all_client_ids:
+            # Start with defaults
+            config_data = {
+                'client_id': client_id,
+                'display_name': client_id.replace('_', ' ').title(),
+                'enabled': True,
+                'auto_restart': True,
+                'max_restarts': 5,
+                'restart_delay': 30,
+                'memory_limit_mb': 512,
+                'custom_env': {}
+            }
+
+            # Merge data from different sources (priority: database > config > directory)
+            if client_id in discovery_results['directories']:
+                dir_config = discovery_results['directories'][client_id].get('config', {})
+                config_data.update(dir_config)
+
+            if client_id in discovery_results['config']:
+                platform_config = discovery_results['config'][client_id].get('data', {})
+                config_data.update(platform_config)
+
+            if client_id in discovery_results['database']:
+                db_config = discovery_results['database'][client_id].get('data', {})
+                config_data.update(db_config)
+
+            # Create ClientConfig object
+            merged_configs[client_id] = ClientConfig(**{
+                k: v for k, v in config_data.items()
+                if k in ['client_id', 'display_name', 'enabled', 'auto_restart',
+                        'max_restarts', 'restart_delay', 'memory_limit_mb', 'custom_env']
+            })
+
+        return merged_configs
+
+    def _initialize_health_tracking(self) -> None:
+        """Initialize health tracking for all clients."""
+        for client_id in self.client_configs:
+            self.client_health_status[client_id] = {
+                'config_health': 'healthy',
+                'last_check': datetime.now().isoformat(),
+                'issues': [],
+                'auto_fixes_applied': 0
+            }
 
     def _save_platform_config(self) -> None:
         """Save current platform configuration."""
         try:
             config_data = {
-                "platform": {
-                    "name": "Multi-Client Discord Bot Platform",
-                    "version": "2.0.1",
-                    "last_updated": datetime.now().isoformat()
+                'platform': {
+                    'name': 'Multi-Client Discord Bot Platform',
+                    'version': '2.0.2',
+                    'last_updated': datetime.now().isoformat()
                 },
-                "clients": [
-                    {
-                        "client_id": config.client_id,
-                        "display_name": config.display_name,
-                        "enabled": config.enabled,
-                        "auto_restart": config.auto_restart,
-                        "max_restarts": config.max_restarts,
-                        "restart_delay": config.restart_delay,
-                        "memory_limit_mb": config.memory_limit_mb,
-                        "custom_env": config.custom_env
-                    }
-                    for config in self.client_configs.values()
-                ]
+                'auto_healing': self.auto_healing_config,
+                'logging': {
+                    'startup_verbosity': 'INFO',
+                    'show_config_validation': True,
+                    'show_auto_healing_actions': True
+                },
+                'clients': [asdict(config) for config in self.client_configs.values()]
             }
 
             with open(self.config_path, 'w', encoding='utf-8') as f:
                 json.dump(config_data, f, indent=2, ensure_ascii=False)
 
-            self.logger.debug(f"Saved platform config with {len(self.client_configs)} clients")
-
         except Exception as e:
             self.logger.error(f"Failed to save platform config: {e}")
 
+    def get_enhanced_platform_stats(self) -> Dict[str, Any]:
+        """Get enhanced platform statistics with health information."""
+        base_stats = self.get_platform_stats()
+
+        # Get current auto-healing state
+        current_auto_healing = self.auto_healing_config["enabled"]
+
+        # Add health information
+        health_summary = {
+            "healthy_clients": 0,
+            "clients_with_issues": 0,
+            "total_auto_fixes": len(self.auto_fix_log),
+            "auto_healing_enabled": current_auto_healing
+        }
+
+        for client_id, health_info in self.client_health_status.items():
+            if health_info["config_health"] == "healthy":
+                health_summary["healthy_clients"] += 1
+            else:
+                health_summary["clients_with_issues"] += 1
+
+        # Enhanced client information
+        enhanced_clients = {}
+        for client_id, client_stats in base_stats.get("clients", {}).items():
+            enhanced_clients[client_id] = {
+                **client_stats,
+                "health_status": self.client_health_status.get(client_id, {}),
+                "config_issues": self.client_health_status.get(client_id, {}).get("issues", []),
+                "auto_fixes_applied": len([fix for fix in self.auto_fix_log if client_id in fix])
+            }
+
+        return {
+            **base_stats,
+            "health": health_summary,
+            "clients": enhanced_clients,
+            "auto_fix_log": self.auto_fix_log[-10:]  # Last 10 auto-fixes
+        }
+
+    def start_client_enhanced(self, client_id: str) -> bool:
+        """Enhanced client startup with comprehensive validation and logging."""
+        self.logger.info(f"🚀 Starting client: {client_id}")
+        return self.start_client(client_id)
+
+    # ====================================================================
+    # ORIGINAL LAUNCHER METHODS (Preserved from original launcher.py)
+    # ====================================================================
+
+    def _load_synchronized_config(self) -> None:
+        """Legacy method - replaced by _load_synchronized_config_enhanced."""
+        # This method is kept for backward compatibility but not used
+        pass
+
+    def get_platform_stats(self) -> Dict[str, Any]:
+        """Get comprehensive platform statistics."""
+        current_time = datetime.now(timezone.utc)
+        uptime = (current_time - self.start_time).total_seconds() / 3600
+
+        # Collect client statistics
+        client_stats = {}
+        for client_id, client_config in self.client_configs.items():
+            process_info = self.client_processes.get(client_id)
+
+            if process_info and process_info.process:
+                try:
+                    # Get process information
+                    proc = psutil.Process(process_info.process.pid)
+                    memory_mb = proc.memory_info().rss / 1024 / 1024
+                    cpu_percent = proc.cpu_percent(interval=0.1)
+
+                    process_uptime = (current_time - process_info.started_at).total_seconds() / 3600
+
+                    client_stats[client_id] = {
+                        "running": True,
+                        "pid": process_info.process.pid,
+                        "uptime_hours": round(process_uptime, 1),
+                        "memory_mb": round(memory_mb, 1),
+                        "cpu_percent": round(cpu_percent, 1),
+                        "restart_count": process_info.restart_count,
+                        "last_restart": process_info.last_restart.isoformat() if process_info.last_restart else None,
+                        "status": process_info.status
+                    }
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    client_stats[client_id] = {
+                        "running": False,
+                        "status": "process_not_found",
+                        "restart_count": process_info.restart_count
+                    }
+            else:
+                client_stats[client_id] = {
+                    "running": False,
+                    "status": "stopped",
+                    "restart_count": 0
+                }
+
+        return {
+            "platform": {
+                "uptime_hours": round(uptime, 1),
+                "total_clients": len(self.client_configs),
+                "running_clients": len([c for c in client_stats.values() if c.get("running")]),
+                "total_restarts": self.total_restarts,
+                "last_health_check": self.last_health_check.isoformat() if self.last_health_check else None
+            },
+            "clients": client_stats
+        }
+
     def _discover_running_clients(self) -> None:
-        """Discover and track already running client processes."""
+        """Discover and register already running client processes."""
         discovered_count = 0
 
         try:
-            # Method 1: Check process registry file
-            if self.process_registry.exists():
-                discovered_count += self._load_from_process_registry()
-
-            # Method 2: Scan running processes
-            discovered_count += self._scan_running_processes()
-
-            if discovered_count > 0:
-                self.logger.info(f"Discovered {discovered_count} running client processes")
-            else:
-                self.logger.debug("No running client processes discovered")
-
-        except Exception as e:
-            self.logger.error(f"Error during process discovery: {e}")
-
-    def _load_from_process_registry(self) -> int:
-        """Load process info from registry file."""
-        try:
-            with open(self.process_registry, 'r', encoding='utf-8') as f:
-                registry_data = json.load(f)
-
-            discovered = 0
-            for client_id, process_data in registry_data.items():
-                pid = process_data.get('pid')
-                if pid and psutil.pid_exists(pid):
-                    try:
-                        proc = psutil.Process(pid)
-                        # Verify it's actually our client process
-                        cmdline = ' '.join(proc.cmdline())
-                        if 'bot_platform.client_runner' in cmdline and f'--client-id {client_id}' in cmdline:
-                            # Reconstruct ClientProcess info
-                            started_at = datetime.fromisoformat(process_data['started_at'])
-                            client_process = ClientProcess(
-                                client_id=client_id,
-                                started_at=started_at,
-                                restart_count=process_data.get('restart_count', 0),
-                                pid=pid
-                            )
-                            self.client_processes[client_id] = client_process
-                            discovered += 1
-                            self.logger.debug(f"Discovered registered client {client_id} (PID: {pid})")
-                    except (psutil.NoSuchProcess, psutil.AccessDenied):
-                        continue
-
-            return discovered
-
-        except Exception as e:
-            self.logger.debug(f"Could not load process registry: {e}")
-            return 0
-
-    def _scan_running_processes(self) -> int:
-        """Scan all running processes to find our clients."""
-        discovered = 0
-
-        try:
-            for proc in psutil.process_iter(['pid', 'cmdline']):
+            for proc in psutil.process_iter(['pid', 'name', 'cmdline', 'create_time']):
                 try:
                     cmdline = proc.info['cmdline']
-                    if not cmdline:
-                        continue
+                    if cmdline and len(cmdline) >= 2:
+                        # Look for client runner processes
+                        if 'client_runner.py' in ' '.join(cmdline):
+                            for arg in cmdline:
+                                if arg.startswith('--client='):
+                                    client_id = arg.split('=', 1)[1]
 
-                    cmdline_str = ' '.join(cmdline)
+                                    # Create a mock subprocess.Popen object
+                                    mock_process = type('MockProcess', (), {
+                                        'pid': proc.info['pid'],
+                                        'poll': lambda: None,  # Process is running
+                                        'terminate': lambda: proc.terminate(),
+                                        'kill': lambda: proc.kill()
+                                    })()
 
-                    # Look for our client runner processes
-                    if 'bot_platform.client_runner' in cmdline_str and '--client-id' in cmdline_str:
-                        # Extract client ID from command line
-                        for i, arg in enumerate(cmdline):
-                            if arg == '--client-id' and i + 1 < len(cmdline):
-                                client_id = cmdline[i + 1]
-
-                                # Skip if we already know about this process
-                                if client_id in self.client_processes:
-                                    continue
-
-                                # Verify client_id is configured (or add it if missing)
-                                if client_id not in self.client_configs:
-                                    # Auto-add discovered client to configuration
-                                    self.client_configs[client_id] = ClientConfig(
+                                    self.client_processes[client_id] = ClientProcess(
                                         client_id=client_id,
-                                        display_name=client_id.title().replace('_', ' ')
+                                        process=mock_process,
+                                        started_at=datetime.fromtimestamp(proc.info['create_time'], tz=timezone.utc),
+                                        pid=proc.info['pid']
                                     )
-                                    self.logger.info(f"Auto-discovered new client: {client_id}")
-
-                                # Create ClientProcess entry
-                                proc_obj = psutil.Process(proc.info['pid'])
-                                create_time = datetime.fromtimestamp(proc_obj.create_time(), tz=timezone.utc)
-
-                                client_process = ClientProcess(
-                                    client_id=client_id,
-                                    started_at=create_time,
-                                    pid=proc.info['pid']
-                                )
-                                self.client_processes[client_id] = client_process
-                                discovered += 1
-                                self.logger.debug(f"Discovered running client {client_id} (PID: {proc.info['pid']})")
-                                break
-
-                except (psutil.NoSuchProcess, psutil.AccessDenied, IndexError):
+                                    discovered_count += 1
+                                    break
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
                     continue
-
         except Exception as e:
-            self.logger.debug(f"Error scanning processes: {e}")
+            self.logger.error(f"Error discovering running clients: {e}")
 
-        return discovered
+        if discovered_count > 0:
+            self.logger.info(f"Discovered {discovered_count} running client processes")
 
-    def _save_process_registry(self) -> None:
-        """Save current process information to registry file."""
+    def start_client(self, client_id: str) -> bool:
+        """Start a specific client."""
+        if client_id not in self.client_configs:
+            self.logger.error(f"Client {client_id} not found in configuration")
+            return False
+
+        if client_id in self.client_processes:
+            process_info = self.client_processes[client_id]
+            if process_info.process and process_info.process.poll() is None:
+                self.logger.warning(f"Client {client_id} is already running")
+                return True
+
+        config = self.client_configs[client_id]
+        if not config.enabled:
+            self.logger.warning(f"Client {client_id} is disabled")
+            return False
+
         try:
-            registry_data = {}
-            for client_id, process_info in self.client_processes.items():
-                registry_data[client_id] = {
-                    'pid': process_info.pid,
-                    'started_at': process_info.started_at.isoformat(),
-                    'restart_count': process_info.restart_count,
-                    'last_updated': datetime.now().isoformat()
-                }
+            # Build command to start the client
+            cmd = [
+                sys.executable,
+                str(Path("bot_platform/client_runner.py").resolve()),
+                f"--client={client_id}",
+                f"--config={self.config_path}"
+            ]
 
-            with open(self.process_registry, 'w', encoding='utf-8') as f:
-                json.dump(registry_data, f, indent=2, ensure_ascii=False)
+            # Set up environment
+            env = os.environ.copy()
+            env.update(config.custom_env)
+
+            # Start the process
+            process = subprocess.Popen(
+                cmd,
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                cwd=Path.cwd()
+            )
+
+            # Register the process
+            self.client_processes[client_id] = ClientProcess(
+                client_id=client_id,
+                process=process,
+                pid=process.pid
+            )
+
+            self.logger.info(f"Started client {client_id} (PID: {process.pid})")
+            return True
 
         except Exception as e:
-            self.logger.debug(f"Could not save process registry: {e}")
+            self.logger.error(f"Failed to start client {client_id}: {e}")
+            return False
 
-    def _cleanup_process_registry(self) -> None:
-        """Remove dead processes from registry."""
-        if self.process_registry.exists():
+    def stop_client(self, client_id: str) -> bool:
+        """Stop a specific client."""
+        if client_id not in self.client_processes:
+            self.logger.warning(f"Client {client_id} is not running")
+            return True
+
+        process_info = self.client_processes[client_id]
+        try:
+            if process_info.process and process_info.process.poll() is None:
+                self.logger.info(f"Stopping client {client_id}...")
+                process_info.process.terminate()
+
+                # Wait for graceful shutdown
+                try:
+                    process_info.process.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    self.logger.warning(f"Force killing client {client_id}")
+                    process_info.process.kill()
+                    process_info.process.wait()
+
+            del self.client_processes[client_id]
+            self.logger.info(f"Stopped client {client_id}")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Error stopping client {client_id}: {e}")
+            return False
+
+    def restart_client(self, client_id: str) -> bool:
+        """Restart a specific client."""
+        self.logger.info(f"Restarting client {client_id}")
+
+        if self.stop_client(client_id):
+            time.sleep(2)  # Brief pause
+            return self.start_client(client_id)
+        return False
+
+    async def start_all_clients(self) -> None:
+        """Start all enabled clients."""
+        enabled_clients = [
+            client_id for client_id, config in self.client_configs.items()
+            if config.enabled
+        ]
+
+        if not enabled_clients:
+            self.logger.warning("No enabled clients found")
+            return
+
+        self.logger.info(f"Starting {len(enabled_clients)} clients...")
+
+        started_clients = []
+        for client_id in enabled_clients:
+            if self.start_client(client_id):
+                started_clients.append(client_id)
+
+            # Brief pause between starts
+            await asyncio.sleep(0.5)
+
+        if started_clients:
+            self.logger.info(f"Started {len(started_clients)} clients: {', '.join(started_clients)}")
+        else:
+            self.logger.error("Failed to start any clients")
+
+    async def stop_all_clients(self) -> None:
+        """Stop all running clients."""
+        if not self.client_processes:
+            self.logger.info("No clients are currently running")
+            return
+
+        self.logger.info(f"Stopping {len(self.client_processes)} clients...")
+
+        stopped_clients = []
+        for client_id in list(self.client_processes.keys()):
+            if self.stop_client(client_id):
+                stopped_clients.append(client_id)
+
+        if stopped_clients:
+            self.logger.info(f"Stopped {len(stopped_clients)} clients: {', '.join(stopped_clients)}")
+
+    async def health_check(self) -> None:
+        """Perform health check on all clients."""
+        self.last_health_check = datetime.now(timezone.utc)
+
+        for client_id, process_info in self.client_processes.items():
             try:
-                self.process_registry.unlink()
-                self.logger.debug("Cleaned up process registry")
+                if process_info.process.poll() is not None:
+                    # Process has died
+                    self.logger.warning(f"Client {client_id} process has died")
+
+                    config = self.client_configs.get(client_id)
+                    if config and config.auto_restart and process_info.restart_count < config.max_restarts:
+                        self.logger.info(f"Auto-restarting client {client_id}")
+                        process_info.restart_count += 1
+                        process_info.last_restart = datetime.now(timezone.utc)
+                        self.total_restarts += 1
+
+                        await asyncio.sleep(config.restart_delay)
+                        self.start_client(client_id)
+                    else:
+                        self.logger.error(f"Client {client_id} exceeded max restarts or auto-restart disabled")
+
             except Exception as e:
-                self.logger.debug(f"Could not cleanup process registry: {e}")
+                self.logger.error(f"Health check error for client {client_id}: {e}")
+
+    async def run(self) -> None:
+        """Main event loop for the platform."""
+        self.logger.info("Platform launcher started")
+
+        # Start all enabled clients
+        await self.start_all_clients()
+
+        try:
+            while not self.shutdown_requested:
+                await self.health_check()
+                await asyncio.sleep(30)  # Health check every 30 seconds
+
+        except KeyboardInterrupt:
+            self.logger.info("Shutdown requested")
+        finally:
+            self.shutdown_requested = True
+            await self.stop_all_clients()
+            self.logger.info("Platform launcher stopped")
 
     def _setup_signal_handlers(self) -> None:
         """Setup signal handlers for graceful shutdown."""
@@ -365,242 +1159,3 @@ class PlatformLauncher:
 
         signal.signal(signal.SIGINT, signal_handler)
         signal.signal(signal.SIGTERM, signal_handler)
-
-    async def start_client(self, client_id: str) -> bool:
-        """Start a specific client bot instance."""
-        if client_id not in self.client_configs:
-            self.logger.error(f"Client {client_id} not found in configuration")
-            return False
-
-        config = self.client_configs[client_id]
-        if not config.enabled:
-            self.logger.info(f"Client {client_id} is disabled, skipping")
-            return False
-
-        # Check if client is already running
-        if client_id in self.client_processes:
-            process_info = self.client_processes[client_id]
-            if process_info.pid and psutil.pid_exists(process_info.pid):
-                self.logger.warning(f"Client {client_id} is already running (PID: {process_info.pid})")
-                return True
-
-        # Verify client directory exists
-        client_dir = self.clients_dir / client_id
-        if not client_dir.exists():
-            self.logger.error(f"Client directory not found: {client_dir}")
-            return False
-
-        try:
-            # Build command to run client
-            cmd = [
-                sys.executable, "-m", "bot_platform.client_runner",
-                "--client-id", client_id
-            ]
-
-            # Setup environment
-            env = os.environ.copy()
-            env.update(config.custom_env)
-            env["CLIENT_ID"] = client_id
-
-            # Start the client process
-            process = subprocess.Popen(
-                cmd,
-                env=env,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                bufsize=1,
-                universal_newlines=True
-            )
-
-            # Store process info
-            self.client_processes[client_id] = ClientProcess(
-                client_id=client_id,
-                process=process,
-                started_at=datetime.now(timezone.utc),
-                pid=process.pid
-            )
-
-            # Update process registry
-            self._save_process_registry()
-
-            self.logger.info(f"Started client {client_id} (PID: {process.pid})")
-            return True
-
-        except Exception as e:
-            self.logger.error(f"Failed to start client {client_id}: {e}")
-            return False
-
-    async def stop_client(self, client_id: str, force: bool = False) -> bool:
-        """Stop a specific client bot instance."""
-        if client_id not in self.client_processes:
-            self.logger.warning(f"Client {client_id} is not running")
-            return True
-
-        process_info = self.client_processes[client_id]
-
-        try:
-            if process_info.pid and psutil.pid_exists(process_info.pid):
-                proc = psutil.Process(process_info.pid)
-
-                if force:
-                    proc.kill()
-                    self.logger.info(f"Force killed client {client_id}")
-                else:
-                    proc.terminate()
-                    self.logger.info(f"Terminated client {client_id}")
-
-                # Wait for process to die
-                try:
-                    proc.wait(timeout=10)
-                except psutil.TimeoutExpired:
-                    proc.kill()
-                    self.logger.warning(f"Had to force kill client {client_id}")
-
-            # Remove from tracking
-            del self.client_processes[client_id]
-            self._save_process_registry()
-
-            return True
-
-        except Exception as e:
-            self.logger.error(f"Failed to stop client {client_id}: {e}")
-            return False
-
-    async def restart_client(self, client_id: str) -> bool:
-        """Restart a specific client bot instance."""
-        self.logger.info(f"Restarting client {client_id}")
-
-        # Stop the client
-        if not await self.stop_client(client_id):
-            return False
-
-        # Wait a moment
-        await asyncio.sleep(2)
-
-        # Start the client
-        success = await self.start_client(client_id)
-        if success and client_id in self.client_processes:
-            self.client_processes[client_id].restart_count += 1
-            self.total_restarts += 1
-            self._save_process_registry()
-
-        return success
-
-    def _update_resource_usage(self) -> None:
-        """Update memory and CPU usage for all tracked processes."""
-        for client_id, process_info in list(self.client_processes.items()):
-            try:
-                if process_info.pid and psutil.pid_exists(process_info.pid):
-                    proc = psutil.Process(process_info.pid)
-
-                    # Update memory and CPU usage
-                    process_info.memory_usage = proc.memory_info().rss / 1024 / 1024  # MB
-                    process_info.cpu_usage = proc.cpu_percent()
-
-                    # Check memory limits
-                    config = self.client_configs.get(client_id)
-                    if config and process_info.memory_usage > config.memory_limit_mb:
-                        self.logger.warning(
-                            f"Client {client_id} exceeding memory limit: "
-                            f"{process_info.memory_usage:.1f}MB > {config.memory_limit_mb}MB"
-                        )
-                else:
-                    # Process died, remove from tracking
-                    self.logger.warning(f"Client {client_id} process no longer exists, removing from tracking")
-                    del self.client_processes[client_id]
-                    self._save_process_registry()
-
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                # Process died, remove from tracking
-                self.logger.warning(f"Client {client_id} process died, removing from tracking")
-                if client_id in self.client_processes:
-                    del self.client_processes[client_id]
-                    self._save_process_registry()
-            except Exception as e:
-                self.logger.error(f"Error updating resources for client {client_id}: {e}")
-
-    def get_platform_stats(self) -> Dict[str, Any]:
-        """Get comprehensive platform statistics."""
-        # Update resource usage before getting stats
-        self._update_resource_usage()
-
-        uptime = (datetime.now(timezone.utc) - self.start_time).total_seconds()
-
-        stats = {
-            "platform": {
-                "uptime_seconds": uptime,
-                "uptime_hours": uptime / 3600,
-                "total_restarts": self.total_restarts,
-                "total_clients": len(self.client_configs),
-                "running_clients": len(self.client_processes),
-                "enabled_clients": sum(1 for config in self.client_configs.values() if config.enabled)
-            },
-            "clients": {}
-        }
-
-        # Add individual client stats
-        for client_id, config in self.client_configs.items():
-            client_stats = {
-                "enabled": config.enabled,
-                "running": client_id in self.client_processes,
-                "restart_count": 0,
-                "memory_mb": 0.0,
-                "cpu_percent": 0.0,
-                "uptime_seconds": 0
-            }
-
-            # Add runtime stats if running
-            if client_id in self.client_processes:
-                process_info = self.client_processes[client_id]
-                client_stats.update({
-                    "restart_count": process_info.restart_count,
-                    "memory_mb": process_info.memory_usage,
-                    "cpu_percent": process_info.cpu_usage,
-                    "uptime_seconds": (datetime.now(timezone.utc) - process_info.started_at).total_seconds()
-                })
-
-            stats["clients"][client_id] = client_stats
-
-        return stats
-
-    async def run(self) -> None:
-        """Main run loop for the platform launcher."""
-        self.logger.info("Platform launcher started")
-
-        try:
-            # Start enabled clients
-            started_clients = []
-            for client_id, config in self.client_configs.items():
-                if config.enabled:
-                    if await self.start_client(client_id):
-                        started_clients.append(client_id)
-
-            if started_clients:
-                self.logger.info(f"Started {len(started_clients)} clients: {', '.join(started_clients)}")
-            else:
-                self.logger.warning("No clients were started")
-                return
-
-            # Main monitoring loop
-            while not self.shutdown_requested:
-                self._update_resource_usage()
-                await asyncio.sleep(30)  # Check every 30 seconds
-
-        except KeyboardInterrupt:
-            self.logger.info("Received keyboard interrupt")
-        finally:
-            await self.shutdown()
-
-    async def shutdown(self) -> None:
-        """Shutdown all clients and cleanup."""
-        self.logger.info("Shutting down platform...")
-
-        # Stop all running clients
-        for client_id in list(self.client_processes.keys()):
-            await self.stop_client(client_id)
-
-        # Cleanup process registry
-        self._cleanup_process_registry()
-
-        self.logger.info("Platform shutdown complete")

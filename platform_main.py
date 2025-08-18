@@ -26,8 +26,53 @@ from typing import Optional
 # Add project root to path for imports
 sys.path.insert(0, str(Path(__file__).parent))
 
-from bot_platform.enhanced_launcher import EnhancedPlatformLauncher as PlatformLauncher
+from bot_platform.launcher import PlatformLauncher
 from bot_platform.client_manager import ClientManager
+
+
+import subprocess
+
+
+def diagnose_client_startup():
+    """Diagnose common client startup issues."""
+    issues = []
+
+    # Check if client_runner.py exists
+    client_runner = Path("bot_platform/client_runner.py")
+    if not client_runner.exists():
+        issues.append("❌ client_runner.py not found")
+
+    # Check if clients directory exists
+    clients_dir = Path("clients")
+    if not clients_dir.exists():
+        issues.append("❌ clients/ directory not found")
+
+    # Check specific client directories
+    for client_name in ["default", "client_two"]:
+        client_dir = clients_dir / client_name
+        if not client_dir.exists():
+            issues.append(f"❌ {client_name} directory missing")
+        else:
+            config_file = client_dir / "config.json"
+            if not config_file.exists():
+                issues.append(f"❌ {client_name}/config.json missing")
+
+    # Try running client_runner.py with --help to see if it works
+    try:
+        result = subprocess.run([
+            sys.executable,
+            str(client_runner.resolve()),
+            "--help"
+        ], capture_output=True, text=True, timeout=5)
+
+        if result.returncode != 0:
+            issues.append(f"❌ client_runner.py failed: {result.stderr}")
+    except subprocess.TimeoutExpired:
+        issues.append("❌ client_runner.py hangs on startup")
+    except Exception as e:
+        issues.append(f"❌ client_runner.py error: {e}")
+
+    return issues
 
 
 class PlatformMain:
@@ -150,8 +195,12 @@ class PlatformMain:
                 print("Recent Auto-fixes:")
                 print("-" * 20)
                 for fix in auto_fix_log[-5:]:  # Show last 5
-                    timestamp = fix["timestamp"][:19]  # Remove microseconds
-                    print(f"   {timestamp}: {fix['action']}")
+                    timestamp = fix.get("timestamp", "Unknown")[:19]  # Remove microseconds
+
+                    # Handle different log entry formats
+                    action = fix.get("action") or fix.get("fix_applied") or fix.get("description") or "Unknown action"
+
+                    print(f"   {timestamp}: {action}")
                 print()
         else:
             print("❌ No clients configured")
@@ -172,7 +221,8 @@ class PlatformMain:
             print("  4. Restart client")
             print("  5. Create new client")
             print("  6. View logs")
-            print("  7. Quit")
+            print("  7. Run diagnostics")
+            print("  8. Quit")
 
             try:
                 choice = input("\nSelect option (1-7): ").strip()
@@ -190,6 +240,8 @@ class PlatformMain:
                 elif choice == "6":
                     await self._show_logs_interactive()
                 elif choice == "7":
+                    await self.diagnose_platform()
+                elif choice == "8":
                     print("👋 Goodbye!")
                     self.running = False
                 else:
@@ -244,7 +296,7 @@ class PlatformMain:
             if 1 <= choice <= len(running_clients):
                 client_id = running_clients[choice - 1]
                 print(f"🛑 Stopping {client_id}...")
-                success = await self.launcher.stop_client(client_id)  # This one IS async
+                success = self.launcher.stop_client(client_id)  # This one IS async
                 if success:
                     print(f"✅ {client_id} stopped successfully")
                 else:
@@ -271,7 +323,7 @@ class PlatformMain:
             if 1 <= choice <= len(clients):
                 client_id = clients[choice - 1]
                 print(f"🔄 Restarting {client_id}...")
-                success = await self.launcher.restart_client(client_id)  # This one IS async
+                success = self.launcher.restart_client(client_id)  # This one IS async
                 if success:
                     print(f"✅ {client_id} restarted successfully")
                 else:
@@ -317,6 +369,28 @@ class PlatformMain:
         signal.signal(signal.SIGINT, signal_handler)
         signal.signal(signal.SIGTERM, signal_handler)
 
+    async def diagnose_platform(self) -> None:
+        """Diagnose platform issues."""
+        print("🔍 Platform Diagnostics")
+        print("=" * 30)
+
+        issues = diagnose_client_startup()
+        if issues:
+            print("❌ Issues found:")
+            for issue in issues:
+                print(f"   {issue}")
+        else:
+            print("✅ Basic checks passed")
+
+        # Check auto-healing status
+        print(f"\n🤖 Auto-healing: {'Enabled' if self.launcher.auto_healing_config['enabled'] else 'Disabled'}")
+
+        # Check client configs
+        print(f"\n📊 Configured clients: {len(self.launcher.client_configs)}")
+        for client_id, config in self.launcher.client_configs.items():
+            status = "🟢" if config.enabled else "🔴"
+            print(f"   {status} {client_id}")
+
 
 async def main():
     """Main entry point."""
@@ -338,12 +412,7 @@ async def main():
     # Create and configure launcher with enhanced arguments
     launcher = PlatformLauncher()
 
-    # Handle enhanced arguments
-    if args.verbose:
-        import logging
-        logging.getLogger().setLevel(logging.DEBUG)
-        launcher.logger.info("🔍 Verbose logging enabled")
-
+    # Handle enhanced arguments BEFORE discovery
     if args.no_auto_heal:
         launcher.auto_healing_config["enabled"] = False
         launcher.logger.info("🚫 Auto-healing disabled via command line")
@@ -351,6 +420,11 @@ async def main():
     if args.dry_run:
         launcher.auto_healing_config["enabled"] = False
         launcher.logger.info("🔍 Dry-run mode: Auto-healing disabled")
+
+    if args.verbose:
+        import logging
+        logging.getLogger().setLevel(logging.DEBUG)
+        launcher.logger.info("🔍 Verbose logging enabled")
 
     # Create platform manager with configured launcher
     platform = PlatformMain(launcher)
