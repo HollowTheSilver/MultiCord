@@ -496,13 +496,21 @@ class EnhancedPlatformLauncher(PlatformLauncher):
         """Get enhanced platform statistics including health information."""
         base_stats = self.get_platform_stats()
 
+        # DEBUG: Log current auto-healing state
+        current_auto_healing = self.auto_healing_config["enabled"]
+        self.logger.debug(f"🔍 AUTO-HEALING DEBUG: Current state = {current_auto_healing}")
+        self.logger.debug(f"🔍 AUTO-HEALING CONFIG: {self.auto_healing_config}")
+
         # Add health information
         health_summary = {
             "healthy_clients": 0,
             "clients_with_issues": 0,
             "total_auto_fixes": len(self.auto_fix_log),
-            "auto_healing_enabled": self.auto_healing_config["enabled"]
+            "auto_healing_enabled": current_auto_healing  # Use the debug variable
         }
+
+        # DEBUG: Log what we're returning
+        self.logger.debug(f"🔍 HEALTH SUMMARY: auto_healing_enabled = {health_summary['auto_healing_enabled']}")
 
         for client_id, health_info in self.client_health_status.items():
             if health_info["config_health"] == "healthy":

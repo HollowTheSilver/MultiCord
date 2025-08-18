@@ -79,6 +79,10 @@ class PlatformMain:
 
     async def show_status(self) -> None:
         """Enhanced status display with health information."""
+
+        # DEBUG: Check auto-healing state before getting stats
+        print(f"🔍 DEBUG: Auto-healing config = {self.launcher.auto_healing_config['enabled']}")
+
         print("📊 Enhanced Multi-Client Platform Status")
         print("=" * 50)
 
@@ -86,6 +90,9 @@ class PlatformMain:
         stats = self.launcher.get_enhanced_platform_stats()
         platform_stats = stats["platform"]
         health_stats = stats["health"]
+
+        # DEBUG: Check what stats returned
+        print(f"🔍 DEBUG: Stats auto_healing_enabled = {health_stats['auto_healing_enabled']}")
 
         # Platform overview
         print(f"🕐 Platform Uptime: {platform_stats['uptime_hours']:.1f} hours")
