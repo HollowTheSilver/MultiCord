@@ -235,14 +235,17 @@ class ClientRunner:
         })
 
     async def run(self) -> None:
-        """Run the client bot instance."""
-        # Get Discord token
+        """Run the Discord bot with client-specific configuration."""
+        # Verify Discord token
         token = os.getenv("DISCORD_TOKEN")
         if not token:
-            raise ValueError(f"DISCORD_TOKEN not found for client {self.client_id}")
+            print(f"❌ DISCORD_TOKEN not found for client {self.client_id}")
+            sys.exit(1)
+
+        print(f"🤖 Starting Discord bot for client: {self.client_id}")
 
         try:
-            # Create bot application with client config
+            # Create enhanced bot application with client configuration
             bot = ClientApplication(
                 config=self.bot_config,
                 client_id=self.client_id,
@@ -250,53 +253,32 @@ class ClientRunner:
                 client_features=self.features
             )
 
-            # Apply branding
-            self._apply_branding(bot)
-
-            # Load custom cogs after setup
-            async def after_setup():
-                await self._load_custom_cogs(bot)
-
-            # Add setup hook
-            original_setup_hook = bot.setup_hook
-            async def enhanced_setup_hook():
-                await original_setup_hook()
-                await after_setup()
-
-            bot.setup_hook = enhanced_setup_hook
-
-            # Start the bot
-            bot.logger.info(f"Starting client bot: {self.client_id}")
+            # Start the bot (this will run until bot.close() is called)
             await bot.start(token)
 
+        except KeyboardInterrupt:
+            print(f"🛑 Client {self.client_id} stopped by user")
+
         except Exception as e:
-            print(f"Failed to start client {self.client_id}: {e}")
+            print(f"❌ Client {self.client_id} fatal error: {e}")
             raise
+
+        finally:
+            print(f"🔌 Client {self.client_id} shutdown complete")
 
 
 class ClientApplication(Application):
-    """Enhanced Application class with client-specific functionality."""
+    """Enhanced Application class with client-specific features."""
 
-    def __init__(self, config: Optional[BotConfig] = None, client_id: str = None,
-                 client_branding: Dict[str, Any] = None, client_features: Dict[str, Any] = None):
-        """Initialize client application with custom configuration."""
+    def __init__(self, config: BotConfig, client_id: str, client_branding: Dict[str, Any],
+                 client_features: Dict[str, Any]):
+        """Initialize with client-specific configuration."""
         super().__init__(config)
 
+        # Store client-specific data
         self.client_id = client_id
-        self.client_branding = client_branding or {}
-        self.client_features = client_features or {}
-
-        # Add client info to logger context
-        if self.logger and client_id:
-            self.logger = self.logger.bind(client_id=client_id)
-
-    def get_branded_embed_color(self, embed_type: str = "default") -> int:
-        """Get client-specific embed color."""
-        if not self.client_branding:
-            return 0x3498db  # Default blue
-
-        colors = self.client_branding.get('embed_colors', {})
-        return colors.get(embed_type, colors.get('default', 0x3498db))
+        self.client_branding = client_branding
+        self.client_features = client_features
 
     def get_branded_bot_name(self) -> str:
         """Get client-specific bot name."""
@@ -317,11 +299,13 @@ class ClientApplication(Application):
 
         # Log client-specific startup
         if self.client_id:
-            self.logger.info(f"Client {self.client_id} is ready!", extra={
+            self.logger.info(f"🟢 Client {self.client_id} is ready and online!", extra={
                 "client_id": self.client_id,
                 "branded_name": self.get_branded_bot_name(),
                 "features": list(self.client_features.keys()) if self.client_features else []
             })
+
+            print(f"🟢 Client {self.client_id} ({self.get_branded_bot_name()}) is online!")
 
     def get_stats(self) -> Dict[str, Any]:
         """Get enhanced stats with client information."""

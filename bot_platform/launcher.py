@@ -105,7 +105,7 @@ class PlatformLauncher:
         self.auto_fix_log = []
 
         # Load configuration with comprehensive discovery and auto-healing
-        self._load_synchronized_config_enhanced()
+        self._load_synchronized_config()
         self._discover_running_clients()
         self._setup_signal_handlers()
 
@@ -453,7 +453,7 @@ class PlatformLauncher:
                 'last_updated': datetime.now().isoformat()
             }
 
-            success = client_manager.create_client(client_config)
+            success = client_manager.create_client(**client_config)
             if success:
                 self.logger.info(f"✅ Auto-added client to database: {client_id}")
                 return True
@@ -509,7 +509,7 @@ class PlatformLauncher:
             return False
 
     def _complete_client_files_from_template(self, client_id: str, missing_files: List[str]) -> bool:
-        """Complete missing files in existing client directory."""
+        """Complete missing files in existing client directory with Smart Configuration Sync."""
         template_dir = self.clients_dir / "_template"
         client_dir = self.clients_dir / client_id
 
@@ -540,10 +540,14 @@ class PlatformLauncher:
 
                         # Apply template substitution
                         self._process_template_file(target_file, client_id)
+
+                        # CRITICAL ENHANCEMENT: Apply Smart Configuration Sync
+                        self._sync_configuration_from_env(client_id, target_file)
+
                         files_created.append('config.json')
                         self.logger.info(f"✅ Created {missing_file} for {client_id}")
                     else:
-                        # Create from scratch
+                        # Create from scratch (includes Smart Config Sync)
                         self._create_config_json_from_scratch(client_id)
                         files_created.append('config.json')
 
@@ -594,7 +598,7 @@ class PlatformLauncher:
             return False
 
     def _create_config_json_from_scratch(self, client_id: str) -> bool:
-        """Create config.json from scratch when no template exists."""
+        """Create config.json from scratch with Smart Configuration Sync."""
         client_dir = self.clients_dir / client_id
         config_file = client_dir / 'config.json'
 
@@ -624,6 +628,10 @@ class PlatformLauncher:
                 json.dump(config_data, f, indent=2, ensure_ascii=False)
 
             self.logger.info(f"✅ Created config.json from scratch for {client_id}")
+
+            # CRITICAL ENHANCEMENT: Apply Smart Configuration Sync
+            self._sync_configuration_from_env(client_id, config_file)
+
             return True
 
         except Exception as e:
@@ -719,6 +727,132 @@ class PlatformLauncher:
 
                     except Exception as e:
                         self.logger.debug(f"Could not process template file {file_path}: {e}")
+
+    def _sync_configuration_from_env(self, client_id: str, config_file: Path) -> bool:
+        """
+        Smart Configuration Sync with DEBUG LOGGING
+        """
+        try:
+            client_dir = self.clients_dir / client_id
+            env_file = client_dir / '.env'
+
+            self.logger.info(f"🔍 DEBUG: Starting Smart Config Sync for {client_id}")
+            self.logger.info(f"🔍 DEBUG: Looking for .env at: {env_file}")
+            self.logger.info(f"🔍 DEBUG: .env exists: {env_file.exists()}")
+
+            if not env_file.exists():
+                self.logger.warning(f"❌ DEBUG: No .env file found for {client_id} at {env_file}")
+                return False
+
+            # Read current config.json
+            self.logger.info(f"🔍 DEBUG: Looking for config.json at: {config_file}")
+            self.logger.info(f"🔍 DEBUG: config.json exists: {config_file.exists()}")
+
+            if not config_file.exists():
+                self.logger.warning(f"❌ DEBUG: Config file doesn't exist: {config_file}")
+                return False
+
+            with open(config_file, 'r', encoding='utf-8') as f:
+                config_data = json.load(f)
+
+            # Read .env file and extract real values
+            env_values = {}
+            with open(env_file, 'r', encoding='utf-8') as f:
+                content = f.read()
+                self.logger.info(f"🔍 DEBUG: .env file content length: {len(content)} chars")
+
+                for line_num, line in enumerate(content.split('\n'), 1):
+                    line = line.strip()
+                    if '=' in line and not line.startswith('#'):
+                        try:
+                            key, value = line.split('=', 1)
+                            env_values[key.strip()] = value.strip().strip('"').strip("'")
+
+                            # LOG TOKENS SAFELY (hide actual values)
+                            if 'TOKEN' in key:
+                                safe_value = value[:10] + "..." if len(value) > 10 else "SHORT_VALUE"
+                                self.logger.info(f"🔍 DEBUG: Found {key}={safe_value}")
+                            else:
+                                self.logger.info(f"🔍 DEBUG: Found {key}={value}")
+                        except Exception as e:
+                            self.logger.warning(f"⚠️ DEBUG: Error parsing line {line_num}: {line} - {e}")
+
+            self.logger.info(f"🔍 DEBUG: Extracted {len(env_values)} values from .env")
+
+            # Configuration sync mappings
+            sync_mappings = {
+                'DISCORD_TOKEN': ('discord', 'token'),
+                'BOT_NAME': ('bot_name',),
+                'COMMAND_PREFIX': ('features', 'command_prefix'),
+                'LOG_LEVEL': ('features', 'logging_level'),
+                'OWNER_IDS': ('owner_ids',)
+            }
+
+            config_updated = False
+            synced_values = []
+
+            # Sync real values from .env to config.json
+            for env_key, config_path in sync_mappings.items():
+                self.logger.info(f"🔍 DEBUG: Checking {env_key}...")
+
+                if env_key in env_values:
+                    env_value = env_values[env_key]
+
+                    # Log what we found (safely)
+                    if 'TOKEN' in env_key:
+                        safe_value = env_value[:10] + "..." if len(env_value) > 10 else "SHORT_VALUE"
+                        self.logger.info(f"🔍 DEBUG: Found {env_key}={safe_value}")
+                    else:
+                        self.logger.info(f"🔍 DEBUG: Found {env_key}={env_value}")
+
+                    # Skip placeholder values
+                    if env_value in ['your_token_here', 'YOUR_DISCORD_TOKEN_HERE', 'your_user_id_here', '']:
+                        self.logger.warning(f"⚠️ DEBUG: Skipping placeholder value for {env_key}")
+                        continue
+
+                    # Apply real value to config.json
+                    current_obj = config_data
+                    for i, path_segment in enumerate(config_path[:-1]):
+                        if path_segment not in current_obj:
+                            current_obj[path_segment] = {}
+                        current_obj = current_obj[path_segment]
+
+                    # Set the final value
+                    final_key = config_path[-1]
+                    old_value = current_obj.get(final_key, '')
+
+                    self.logger.info(f"🔍 DEBUG: Config path: {' -> '.join(config_path)}")
+                    self.logger.info(f"🔍 DEBUG: Old value: {old_value}")
+
+                    # Only update if we're replacing a placeholder or empty value
+                    if old_value in ['YOUR_DISCORD_TOKEN_HERE', 'your_token_here', '', None]:
+                        current_obj[final_key] = env_value
+                        config_updated = True
+                        synced_values.append(f"{env_key} -> {final_key}")
+                        self.logger.info(f"✅ DEBUG: Updated {env_key} -> {final_key}")
+                    else:
+                        self.logger.info(f"ℹ️ DEBUG: Skipped {env_key} (already has non-placeholder value)")
+                else:
+                    self.logger.info(f"❌ DEBUG: {env_key} not found in .env")
+
+            # Save updated config.json
+            if config_updated:
+                config_data['last_updated'] = datetime.now().isoformat()
+
+                with open(config_file, 'w', encoding='utf-8') as f:
+                    json.dump(config_data, f, indent=2, ensure_ascii=False)
+
+                self.logger.info(f"🔄 Smart Config Sync for {client_id}: {', '.join(synced_values)}")
+                return True
+            else:
+                self.logger.warning(f"❌ DEBUG: No config sync performed for {client_id} - no updates needed")
+                return False
+
+        except Exception as e:
+            self.logger.error(f"❌ Failed to sync configuration for {client_id}: {e}")
+            import traceback
+            self.logger.error(f"❌ DEBUG: Full traceback: {traceback.format_exc()}")
+            return False
 
     def _create_backup(self, backup_name: str) -> None:
         """Create backup of current state."""
@@ -874,14 +1008,101 @@ class PlatformLauncher:
         self.logger.info(f"🚀 Starting client: {client_id}")
         return self.start_client(client_id)
 
+    def _force_smart_config_sync_on_existing_files(self) -> None:
+        """
+        Force Smart Configuration Sync on all existing config.json files.
+        This ensures existing files get updated with real tokens from .env
+        """
+        if not self.auto_healing_config.get("enabled", True):
+            return
+
+        self.logger.info("🔄 Running Smart Config Sync on existing files...")
+
+        sync_count = 0
+        for client_id in self.client_configs:
+            client_dir = self.clients_dir / client_id
+            config_file = client_dir / 'config.json'
+
+            if config_file.exists():
+                try:
+                    # Check if config has placeholder tokens
+                    with open(config_file, 'r', encoding='utf-8') as f:
+                        config_data = json.load(f)
+
+                    # Check if discord token is a placeholder
+                    discord_token = config_data.get('discord', {}).get('token', '')
+
+                    if discord_token in ['YOUR_DISCORD_TOKEN_HERE', 'your_token_here', '']:
+                        self.logger.info(f"🔍 Found placeholder token in {client_id}, running Smart Config Sync...")
+
+                        if self._sync_configuration_from_env(client_id, config_file):
+                            sync_count += 1
+                            self.logger.info(f"✅ Updated config.json for {client_id}")
+                        else:
+                            self.logger.warning(f"⚠️ Could not sync config for {client_id}")
+                    else:
+                        self.logger.debug(f"✅ {client_id} already has real token, skipping")
+
+                except Exception as e:
+                    self.logger.error(f"❌ Error checking config for {client_id}: {e}")
+
+        if sync_count > 0:
+            self.logger.info(f"🔄 Smart Config Sync completed: updated {sync_count} config files")
+        else:
+            self.logger.info("ℹ️ Smart Config Sync: no updates needed")
+
     # ====================================================================
     # ORIGINAL LAUNCHER METHODS (Preserved from original launcher.py)
     # ====================================================================
 
     def _load_synchronized_config(self) -> None:
-        """Legacy method - replaced by _load_synchronized_config_enhanced."""
-        # This method is kept for backward compatibility but not used
-        pass
+        """Load configuration with auto-detection and auto-healing."""
+        self.logger.info("🔍 Discovering clients from all sources...")
+
+        # Step 1: Discover from all sources
+        discovery_results = self._comprehensive_client_discovery()
+
+        # Step 2: Analyze inconsistencies
+        inconsistencies = self._analyze_client_inconsistencies(discovery_results)
+
+        # Step 3: Auto-heal if enabled
+        fixed_count = 0
+        if self.auto_healing_config["enabled"] and inconsistencies:
+            fixed_count = self._auto_heal_inconsistencies(inconsistencies)
+
+        # Step 4: Report issues that couldn't be auto-fixed
+        self._report_remaining_issues(inconsistencies, fixed_count)
+
+        # Step 5: Final configuration merge
+        self.client_configs = self._merge_all_client_sources(discovery_results)
+
+        # Step 6: Force Smart Config Sync on existing files
+        self._force_smart_config_sync_on_existing_files()
+
+        # Step 7: Initialize health tracking
+        self._initialize_health_tracking()
+
+        # Step 8: Save updated configuration
+        self._save_platform_config()
+
+        # Step 9: Success summary
+        total_clients = len(self.client_configs)
+        discovery_results_summary = {
+            'directories': len(discovery_results.get('directories', {})),
+            'database': len(discovery_results.get('database', {})),
+            'config': len(discovery_results.get('config', {})),
+            'running': len(discovery_results.get('running', {}))
+        }
+
+        self.logger.info(f"📊 Discovery results: {discovery_results_summary['directories']} directories, "
+                         f"{discovery_results_summary['database']} in database, "
+                         f"{discovery_results_summary['config']} in config, "
+                         f"{discovery_results_summary['running']} running")
+
+        if fixed_count > 0:
+            self.logger.info(f"✅ Platform ready with {total_clients} clients (auto-fixed {fixed_count} issues)")
+        else:
+            self.logger.info(f"✅ Platform ready with {total_clients} clients")
 
     def get_platform_stats(self) -> Dict[str, Any]:
         """Get comprehensive platform statistics."""
@@ -993,25 +1214,27 @@ class PlatformLauncher:
             return False
 
         try:
-            # Build command to start the client
+            # Build command to start the client - FIXED ARGUMENTS
             cmd = [
                 sys.executable,
                 str(Path("bot_platform/client_runner.py").resolve()),
-                f"--client={client_id}",
-                f"--config={self.config_path}"
+                f"--client-id={client_id}"  # FIXED: Use --client-id
             ]
 
             # Set up environment
             env = os.environ.copy()
             env.update(config.custom_env)
 
-            # Start the process
+            # Start the process with better error capture
             process = subprocess.Popen(
                 cmd,
                 env=env,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                cwd=Path.cwd()
+                stderr=subprocess.STDOUT,  # Capture both stdout and stderr
+                cwd=Path.cwd(),
+                text=True,
+                bufsize=1,
+                universal_newlines=True
             )
 
             # Register the process
