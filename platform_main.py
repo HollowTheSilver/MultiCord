@@ -181,7 +181,7 @@ class PlatformMain:
 
                 # Show runtime stats if running
                 if client_stats["running"]:
-                    uptime_hours = client_stats["uptime_seconds"] / 3600
+                    uptime_hours = client_stats["uptime_hours"]
                     print(f"   ⏱️ Uptime: {uptime_hours:.1f} hours")
                     print(f"   💾 Memory: {client_stats['memory_mb']:.1f} MB")
                     print(f"   ⚡ CPU: {client_stats['cpu_percent']:.1f}%")

@@ -106,7 +106,6 @@ class PlatformLauncher:
 
         # Load configuration with comprehensive discovery and auto-healing
         self._load_synchronized_config()
-        self._discover_running_clients()
         self._setup_signal_handlers()
 
     def _load_auto_healing_config(self) -> Dict[str, Any]:
@@ -148,52 +147,6 @@ class PlatformLauncher:
             # Log for debugging
             self.logger.debug(f"🔍 Auto-healing state changed: {old_state} -> {enabled} (source: {source})")
 
-    def _load_synchronized_config_enhanced(self) -> None:
-        """Enhanced config loading with auto-detection and auto-healing."""
-        self.logger.info("🔍 Discovering clients from all sources...")
-
-        # Step 1: Discover from all sources
-        discovery_results = self._comprehensive_client_discovery()
-
-        # Step 2: Analyze inconsistencies
-        inconsistencies = self._analyze_client_inconsistencies(discovery_results)
-
-        # Step 3: Auto-heal if enabled
-        fixed_count = 0
-        if self.auto_healing_config["enabled"] and inconsistencies:
-            fixed_count = self._auto_heal_inconsistencies(inconsistencies)
-
-        # Step 4: Report issues that couldn't be auto-fixed
-        self._report_remaining_issues(inconsistencies, fixed_count)
-
-        # Step 5: Final configuration merge
-        self.client_configs = self._merge_all_client_sources(discovery_results)
-
-        # Step 6: Initialize health tracking
-        self._initialize_health_tracking()
-
-        # Step 7: Save updated configuration
-        self._save_platform_config()
-
-        # Step 8: Success summary
-        total_clients = len(self.client_configs)
-        discovery_results_summary = {
-            'directories': len(discovery_results.get('directories', {})),
-            'database': len(discovery_results.get('database', {})),
-            'config': len(discovery_results.get('config', {})),
-            'running': len(discovery_results.get('running', {}))
-        }
-
-        self.logger.info(f"📊 Discovery results: {discovery_results_summary['directories']} directories, "
-                        f"{discovery_results_summary['database']} in database, "
-                        f"{discovery_results_summary['config']} in config, "
-                        f"{discovery_results_summary['running']} running")
-
-        if fixed_count > 0:
-            self.logger.info(f"✅ Platform ready with {total_clients} clients (auto-fixed {fixed_count} issues)")
-        else:
-            self.logger.info(f"✅ Platform ready with {total_clients} clients")
-
     def _comprehensive_client_discovery(self) -> Dict[str, Dict[str, Any]]:
         """Enhanced comprehensive client discovery from all sources."""
         discovery_results = {
@@ -233,7 +186,7 @@ class PlatformLauncher:
             try:
                 with open(self.client_manager_db, 'r', encoding='utf-8') as f:
                     db_data = json.load(f)
-                for client_id, client_data in db_data.get('clients', {}).items():
+                for client_id, client_data in db_data.items():
                     discovery_results['database'][client_id] = {
                         'source': 'database',
                         'data': client_data,
@@ -271,10 +224,12 @@ class PlatformLauncher:
                 try:
                     cmdline = proc.info['cmdline']
                     if cmdline and len(cmdline) >= 2:
+                        cmdline_str = ' '.join(cmdline)
+
                         # Look for client runner processes
-                        if 'client_runner.py' in ' '.join(cmdline):
+                        if 'client_runner.py' in cmdline_str:
                             for arg in cmdline:
-                                if arg.startswith('--client='):
+                                if arg.startswith('--client-id='):
                                     client_id = arg.split('=', 1)[1]
                                     running_clients[client_id] = {
                                         'source': 'running',
@@ -1169,7 +1124,8 @@ class PlatformLauncher:
                         # Look for client runner processes
                         if 'client_runner.py' in ' '.join(cmdline):
                             for arg in cmdline:
-                                if arg.startswith('--client='):
+                                # FIXED: Look for --client-id= instead of --client=
+                                if arg.startswith('--client-id='):
                                     client_id = arg.split('=', 1)[1]
 
                                     # Create a mock subprocess.Popen object
@@ -1214,27 +1170,24 @@ class PlatformLauncher:
             return False
 
         try:
-            # Build command to start the client - FIXED ARGUMENTS
+            # Build command to start the client
             cmd = [
                 sys.executable,
                 str(Path("bot_platform/client_runner.py").resolve()),
-                f"--client-id={client_id}"  # FIXED: Use --client-id
+                f"--client-id={client_id}"
             ]
 
             # Set up environment
             env = os.environ.copy()
             env.update(config.custom_env)
 
-            # Start the process with better error capture
+            # Start the process WITHOUT capturing output - let it run free
             process = subprocess.Popen(
                 cmd,
                 env=env,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,  # Capture both stdout and stderr
                 cwd=Path.cwd(),
-                text=True,
-                bufsize=1,
-                universal_newlines=True
+                # REMOVED: stdout, stderr, text, bufsize, universal_newlines
+                # Let the process use normal stdout/stderr like when run directly
             )
 
             # Register the process
