@@ -146,7 +146,19 @@ class PlatformStats:
             status = "🟢 Active" if client_info.status == "active" else "🔴 Inactive"
             print(f"{status} {client_id}")
             print(f"  📝 Name: {client_info.display_name}")
-            print(f"  📅 Created: {client_info.created_at.strftime('%Y-%m-%d')}")
+
+            # Fix datetime handling - created_at is stored as ISO string
+            try:
+                if client_info.created_at:
+                    # Parse ISO string to datetime for formatting
+                    from datetime import datetime
+                    created_date = datetime.fromisoformat(client_info.created_at.replace('Z', '+00:00'))
+                    print(f"  📅 Created: {created_date.strftime('%Y-%m-%d')}")
+                else:
+                    print(f"  📅 Created: Unknown")
+            except (ValueError, AttributeError):
+                print(f"  📅 Created: {client_info.created_at}")
+
             print(f"  💰 Plan: {client_info.plan.title()}")
             print(f"  🏷️  Monthly Fee: ${client_info.monthly_fee}")
             print()

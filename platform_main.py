@@ -11,6 +11,9 @@ Usage:
     python platform_main.py --client alpha     # Start specific client only
     python platform_main.py --status          # Show platform status
     python platform_main.py --interactive     # Interactive management mode
+
+Author: HollowTheSilver
+Version: 2.0.2
 """
 
 import asyncio

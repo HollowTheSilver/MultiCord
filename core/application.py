@@ -7,7 +7,7 @@ configuration management, graceful shutdown, enhanced embeds, professional error
 and enterprise-grade permission system.
 
 Author: HollowTheSilver
-Version: 2.0.1
+Version: 2.0.2
 """
 
 # // ========================================( Modules )======================================== // #

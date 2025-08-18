@@ -6,8 +6,8 @@ CLIENT_CONFIG = {
         "STATUS_CYCLE_INTERVAL": 300,
     },
     "client_info": {
-        "display_name": "Secondary App Node",
+        "display_name": "Client 2",
         "plan": "enterprise",
-        "created_at": "2025-08-17T06:02:36.022348+00:00",
+        "created_at": "2025-08-18T00:37:42.842208+00:00",
     }
 }

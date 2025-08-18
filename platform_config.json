@@ -2,12 +2,12 @@
   "platform": {
     "name": "Multi-Client Discord Bot Platform",
     "version": "2.0.1",
-    "last_updated": "2025-08-17T18:02:33.095333"
+    "last_updated": "2025-08-17T21:13:40.983259"
   },
   "clients": [
     {
-      "client_id": "default",
-      "display_name": "Default Client",
+      "client_id": "client_two",
+      "display_name": "Client 2",
       "enabled": true,
       "auto_restart": true,
       "max_restarts": 5,
@@ -16,8 +16,8 @@
       "custom_env": {}
     },
     {
-      "client_id": "secondary_app_node",
-      "display_name": "Secondary App Node",
+      "client_id": "default",
+      "display_name": "Default",
       "enabled": true,
       "auto_restart": true,
       "max_restarts": 5,
