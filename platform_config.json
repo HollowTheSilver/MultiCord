@@ -2,7 +2,7 @@
   "platform": {
     "name": "Multi-Client Discord Bot Platform",
     "version": "2.0.2",
-    "last_updated": "2025-08-18T05:07:57.651756"
+    "last_updated": "2025-08-18T12:53:10.415693"
   },
   "auto_healing": {
     "enabled": true,
@@ -20,8 +20,8 @@
   },
   "clients": [
     {
-      "client_id": "client_two",
-      "display_name": "Client 2",
+      "client_id": "default",
+      "display_name": "Link Guard",
       "enabled": true,
       "auto_restart": true,
       "max_restarts": 5,
@@ -30,8 +30,8 @@
       "custom_env": {}
     },
     {
-      "client_id": "default",
-      "display_name": "Link Guard",
+      "client_id": "client_two",
+      "display_name": "Client 2",
       "enabled": true,
       "auto_restart": true,
       "max_restarts": 5,

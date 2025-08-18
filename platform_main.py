@@ -122,9 +122,8 @@ class PlatformMain:
             self.running = False
             print("🔌 Platform shutdown complete")
 
-    async def show_status(self) -> None:
-        """Enhanced status display with health information."""
-
+    async def _show_status(self) -> None:
+        """Show enhanced platform status with better display logic."""
         # DEBUG: Check auto-healing state before getting stats
         print(f"🔍 DEBUG: Auto-healing config = {self.launcher.auto_healing_config['enabled']}")
 
@@ -143,32 +142,62 @@ class PlatformMain:
         print(f"🕐 Platform Uptime: {platform_stats['uptime_hours']:.1f} hours")
         print(f"🔄 Total Restarts: {platform_stats['total_restarts']}")
         print(f"📊 Total Clients: {platform_stats['total_clients']}")
+        print(f"🟢 Running Clients: {platform_stats['running_clients']}")  # CLEARER LABEL
         print(f"✅ Healthy Clients: {health_stats['healthy_clients']}")
         print(f"⚠️ Clients with Issues: {health_stats['clients_with_issues']}")
         print(f"🔧 Auto-fixes Applied: {health_stats['total_auto_fixes']}")
         print(f"🤖 Auto-healing: {'Enabled' if health_stats['auto_healing_enabled'] else 'Disabled'}")
         print()
 
-        # Enhanced client details
+        # Enhanced client details with clearer display
         if stats["clients"]:
             print("Detailed Client Status:")
             print("-" * 50)
 
             for client_id, client_stats in stats["clients"].items():
-                status_icon = "🟢" if client_stats["running"] else "🔴"
-                health_icon = "✅" if client_stats["health_status"].get("config_health") == "healthy" else "⚠️"
+                # IMPROVED: Combined status logic that's clear and accurate
+                is_running = client_stats.get("running", False)
+                config_health = client_stats.get("health_status", {}).get("config_health", "unknown")
 
-                print(f"{status_icon} {client_id} {health_icon}")
+                # Primary status (running/stopped)
+                if is_running:
+                    status_icon = "🟢"
+                    status_text = "RUNNING"
+                    pid_info = f" (PID: {client_stats.get('pid', 'unknown')})"
+                    uptime_info = f" • Uptime: {client_stats.get('uptime_hours', 0):.1f}h"
+                else:
+                    status_icon = "🔴"
+                    status_text = "STOPPED"
+                    pid_info = ""
+                    uptime_info = ""
+
+                    # Add reason if available
+                    status_reason = client_stats.get("status", "")
+                    if status_reason and status_reason != "stopped":
+                        status_text += f" ({status_reason})"
+
+                # Health indicator
+                health_icon = "✅" if config_health == "healthy" else "⚠️"
+
+                # Display main status line
+                print(f"{status_icon} {client_id}: {status_text}{pid_info}{uptime_info} {health_icon}")
+
+                # Show additional details for running clients
+                if is_running:
+                    memory = client_stats.get("memory_mb", 0)
+                    cpu = client_stats.get("cpu_percent", 0)
+                    print(
+                        f"   💾 Memory: {memory:.1f} MB • 🔄 CPU: {cpu:.1f}% • 🔄 Restarts: {client_stats.get('restart_count', 0)}")
 
                 # Show health information
-                health_status = client_stats["health_status"]
-                config_health = health_status.get("config_health", "unknown")
-                print(f"   🏥 Config Health: {config_health}")
+                config_health_status = config_health
+                if config_health_status != "healthy":
+                    print(f"   🏥 Config Health: {config_health_status}")
 
                 # Show issues if any
                 issues = client_stats.get("config_issues", [])
                 if issues:
-                    print(f"   ⚠️ Issues: {len(issues)}")
+                    print(f"   ⚠️ Issues ({len(issues)}):")
                     for issue in issues[:3]:  # Show first 3 issues
                         print(f"      • {issue}")
                     if len(issues) > 3:
@@ -179,31 +208,16 @@ class PlatformMain:
                 if auto_fixes > 0:
                     print(f"   🔧 Auto-fixes applied: {auto_fixes}")
 
-                # Show runtime stats if running
-                if client_stats["running"]:
-                    uptime_hours = client_stats["uptime_hours"]
-                    print(f"   ⏱️ Uptime: {uptime_hours:.1f} hours")
-                    print(f"   💾 Memory: {client_stats['memory_mb']:.1f} MB")
-                    print(f"   ⚡ CPU: {client_stats['cpu_percent']:.1f}%")
-                    print(f"   🔄 Restarts: {client_stats['restart_count']}")
+                print()  # Empty line between clients
 
-                print()
-
-            # Show recent auto-fix log
-            auto_fix_log = stats.get("auto_fix_log", [])
-            if auto_fix_log:
-                print("Recent Auto-fixes:")
-                print("-" * 20)
-                for fix in auto_fix_log[-5:]:  # Show last 5
-                    timestamp = fix.get("timestamp", "Unknown")[:19]  # Remove microseconds
-
-                    # Handle different log entry formats
-                    action = fix.get("action") or fix.get("fix_applied") or fix.get("description") or "Unknown action"
-
-                    print(f"   {timestamp}: {action}")
-                print()
         else:
             print("❌ No clients configured")
+
+        print("-" * 50)
+        print("💡 Tips:")
+        print("   • Use option 2 to start stopped clients")
+        print("   • Use option 3 to stop running clients")
+        print("   • Use option 7 for diagnostics if issues detected")
 
     async def interactive_mode(self) -> None:
         """Run interactive management console."""

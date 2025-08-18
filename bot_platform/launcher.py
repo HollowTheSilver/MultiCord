@@ -1060,39 +1060,62 @@ class PlatformLauncher:
             self.logger.info(f"✅ Platform ready with {total_clients} clients")
 
     def get_platform_stats(self) -> Dict[str, Any]:
-        """Get comprehensive platform statistics."""
+        """Get platform statistics with improved process checking."""
         current_time = datetime.now(timezone.utc)
         uptime = (current_time - self.start_time).total_seconds() / 3600
 
-        # Collect client statistics
+        # Collect client statistics with improved checking
         client_stats = {}
         for client_id, client_config in self.client_configs.items():
             process_info = self.client_processes.get(client_id)
 
             if process_info and process_info.process:
                 try:
-                    # Get process information
-                    proc = psutil.Process(process_info.process.pid)
-                    memory_mb = proc.memory_info().rss / 1024 / 1024
-                    cpu_percent = proc.cpu_percent(interval=0.1)
+                    # Check if process is actually running
+                    if process_info.process.poll() is None:
+                        # Process is running - get detailed stats
+                        try:
+                            proc = psutil.Process(process_info.process.pid)
+                            memory_mb = proc.memory_info().rss / 1024 / 1024
+                            cpu_percent = proc.cpu_percent(interval=0.1)
+                            process_uptime = (current_time - process_info.started_at).total_seconds() / 3600
 
-                    process_uptime = (current_time - process_info.started_at).total_seconds() / 3600
-
-                    client_stats[client_id] = {
-                        "running": True,
-                        "pid": process_info.process.pid,
-                        "uptime_hours": round(process_uptime, 1),
-                        "memory_mb": round(memory_mb, 1),
-                        "cpu_percent": round(cpu_percent, 1),
-                        "restart_count": process_info.restart_count,
-                        "last_restart": process_info.last_restart.isoformat() if process_info.last_restart else None,
-                        "status": process_info.status
-                    }
-                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                            client_stats[client_id] = {
+                                "running": True,
+                                "pid": process_info.process.pid,
+                                "uptime_hours": round(process_uptime, 1),
+                                "memory_mb": round(memory_mb, 1),
+                                "cpu_percent": round(cpu_percent, 1),
+                                "restart_count": process_info.restart_count,
+                                "last_restart": process_info.last_restart.isoformat() if process_info.last_restart else None,
+                                "status": "running"
+                            }
+                        except (psutil.NoSuchProcess, psutil.AccessDenied):
+                            # Process exists in our tracking but not in system
+                            client_stats[client_id] = {
+                                "running": False,
+                                "status": "process_disappeared",
+                                "restart_count": process_info.restart_count,
+                                "pid": process_info.process.pid
+                            }
+                            # Clean up dead process
+                            self.logger.warning(
+                                f"Process {client_id} (PID: {process_info.process.pid}) disappeared, cleaning up")
+                            del self.client_processes[client_id]
+                    else:
+                        # Process has terminated
+                        client_stats[client_id] = {
+                            "running": False,
+                            "status": "terminated",
+                            "restart_count": process_info.restart_count,
+                            "pid": process_info.process.pid
+                        }
+                except Exception as e:
+                    self.logger.debug(f"Error checking process status for {client_id}: {e}")
                     client_stats[client_id] = {
                         "running": False,
-                        "status": "process_not_found",
-                        "restart_count": process_info.restart_count
+                        "status": "check_failed",
+                        "restart_count": process_info.restart_count if process_info else 0
                     }
             else:
                 client_stats[client_id] = {
@@ -1113,7 +1136,7 @@ class PlatformLauncher:
         }
 
     def _discover_running_clients(self) -> None:
-        """Discover and register already running client processes."""
+        """Discover and register already running client processes with proper integration."""
         discovered_count = 0
 
         try:
@@ -1124,25 +1147,26 @@ class PlatformLauncher:
                         # Look for client runner processes
                         if 'client_runner.py' in ' '.join(cmdline):
                             for arg in cmdline:
-                                # FIXED: Look for --client-id= instead of --client=
                                 if arg.startswith('--client-id='):
                                     client_id = arg.split('=', 1)[1]
 
-                                    # Create a mock subprocess.Popen object
-                                    mock_process = type('MockProcess', (), {
-                                        'pid': proc.info['pid'],
-                                        'poll': lambda: None,  # Process is running
-                                        'terminate': lambda: proc.terminate(),
-                                        'kill': lambda: proc.kill()
-                                    })()
+                                    # CRITICAL: Only register if we don't already have this client tracked
+                                    if client_id not in self.client_processes:
+                                        # Create a proper process wrapper that doesn't have closure bugs
+                                        mock_process = self._create_process_wrapper(proc)
 
-                                    self.client_processes[client_id] = ClientProcess(
-                                        client_id=client_id,
-                                        process=mock_process,
-                                        started_at=datetime.fromtimestamp(proc.info['create_time'], tz=timezone.utc),
-                                        pid=proc.info['pid']
-                                    )
-                                    discovered_count += 1
+                                        self.client_processes[client_id] = ClientProcess(
+                                            client_id=client_id,
+                                            process=mock_process,
+                                            started_at=datetime.fromtimestamp(proc.info['create_time'],
+                                                                              tz=timezone.utc),
+                                            pid=proc.info['pid']
+                                        )
+                                        discovered_count += 1
+                                        self.logger.info(
+                                            f"🔗 Registered existing client process: {client_id} (PID: {proc.info['pid']})")
+                                    else:
+                                        self.logger.debug(f"Client {client_id} already tracked, skipping discovery")
                                     break
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
                     continue
@@ -1150,19 +1174,73 @@ class PlatformLauncher:
             self.logger.error(f"Error discovering running clients: {e}")
 
         if discovered_count > 0:
-            self.logger.info(f"Discovered {discovered_count} running client processes")
+            self.logger.info(f"✅ Integrated {discovered_count} existing client processes")
+
+    def _create_process_wrapper(self, psutil_proc):
+        """Create a proper process wrapper without closure bugs."""
+        # Store the PID to avoid closure issues
+        proc_pid = psutil_proc.info['pid']
+
+        class ProcessWrapper:
+            def __init__(self, pid):
+                self.pid = pid
+                self._cached_proc = None
+
+            def _get_proc(self):
+                """Get psutil process, handling if it no longer exists."""
+                try:
+                    if self._cached_proc is None or not self._cached_proc.is_running():
+                        self._cached_proc = psutil.Process(self.pid)
+                    return self._cached_proc
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    return None
+
+            def poll(self):
+                """Return None if running, otherwise return exit code."""
+                proc = self._get_proc()
+                if proc and proc.is_running():
+                    return None
+                return 1  # Process has terminated
+
+            def terminate(self):
+                """Terminate the process."""
+                proc = self._get_proc()
+                if proc:
+                    proc.terminate()
+
+            def kill(self):
+                """Kill the process."""
+                proc = self._get_proc()
+                if proc:
+                    proc.kill()
+
+            def wait(self, timeout=None):
+                """Wait for process to terminate."""
+                proc = self._get_proc()
+                if proc:
+                    try:
+                        proc.wait(timeout=timeout)
+                    except psutil.TimeoutExpired as e:
+                        raise subprocess.TimeoutExpired(proc.cmdline(), timeout)
+
+        return ProcessWrapper(proc_pid)
 
     def start_client(self, client_id: str) -> bool:
-        """Start a specific client."""
+        """Start a specific client with improved duplicate checking."""
         if client_id not in self.client_configs:
             self.logger.error(f"Client {client_id} not found in configuration")
             return False
 
+        # IMPROVED: Better checking for already running clients
         if client_id in self.client_processes:
             process_info = self.client_processes[client_id]
             if process_info.process and process_info.process.poll() is None:
-                self.logger.warning(f"Client {client_id} is already running")
+                self.logger.warning(f"Client {client_id} is already running (PID: {process_info.pid})")
                 return True
+            else:
+                # Process object exists but process is dead - clean it up
+                self.logger.info(f"Cleaning up dead process entry for {client_id}")
+                del self.client_processes[client_id]
 
         config = self.client_configs[client_id]
         if not config.enabled:
@@ -1181,13 +1259,11 @@ class PlatformLauncher:
             env = os.environ.copy()
             env.update(config.custom_env)
 
-            # Start the process WITHOUT capturing output - let it run free
+            # Start the process
             process = subprocess.Popen(
                 cmd,
                 env=env,
                 cwd=Path.cwd(),
-                # REMOVED: stdout, stderr, text, bufsize, universal_newlines
-                # Let the process use normal stdout/stderr like when run directly
             )
 
             # Register the process
@@ -1197,7 +1273,7 @@ class PlatformLauncher:
                 pid=process.pid
             )
 
-            self.logger.info(f"Started client {client_id} (PID: {process.pid})")
+            self.logger.info(f"🚀 Started client {client_id} (PID: {process.pid})")
             return True
 
         except Exception as e:
