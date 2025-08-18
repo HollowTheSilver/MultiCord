@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-Multi-Client Discord Bot Platform
-=================================
+Platform Main Entry Point
+=========================
 
-Main entry point for the multi-client Discord bot platform.
-Manages multiple client bot instances with shared core functionality.
+Multi-client Discord bot platform launcher and management interface.
+Enhanced with auto-detection and smart logging capabilities.
 
 Usage:
     python platform_main.py                    # Start all enabled clients
@@ -18,23 +18,24 @@ Version: 2.0.2
 
 import asyncio
 import argparse
-import sys
 import signal
+import sys
 from pathlib import Path
 from typing import Optional
 
 # Add project root to path for imports
 sys.path.insert(0, str(Path(__file__).parent))
 
-from bot_platform.launcher import PlatformLauncher
+from bot_platform.enhanced_launcher import EnhancedPlatformLauncher as PlatformLauncher
 from bot_platform.client_manager import ClientManager
 
 
 class PlatformMain:
     """Main platform controller."""
 
-    def __init__(self):
-        self.launcher = PlatformLauncher()
+    def __init__(self, launcher: PlatformLauncher):
+        """Initialize with pre-configured launcher."""
+        self.launcher = launcher
         self.client_manager = ClientManager()
         self.running = False
 
@@ -48,7 +49,7 @@ class PlatformMain:
                 # Start specific client only
                 if client_filter in self.launcher.client_configs:
                     print(f"🤖 Starting client: {client_filter}")
-                    success = await self.launcher.start_client(client_filter)
+                    success = self.launcher.start_client(client_filter)  # Removed await - this is sync
                     if success:
                         print(f"✅ Client {client_filter} started successfully")
                         # Keep running
@@ -77,29 +78,73 @@ class PlatformMain:
             print("🔌 Platform shutdown complete")
 
     async def show_status(self) -> None:
-        """Show platform status."""
-        print("📊 Multi-Client Platform Status")
-        print("=" * 40)
+        """Enhanced status display with health information."""
+        print("📊 Enhanced Multi-Client Platform Status")
+        print("=" * 50)
 
-        # Platform stats
-        stats = self.launcher.get_platform_stats()
-        print(f"🕐 Uptime: {stats['platform']['uptime_hours']:.1f} hours")
-        print(f"🔄 Total restarts: {stats['platform']['total_restarts']}")
-        print(f"📊 Configured clients: {stats['platform']['total_clients']}")
-        print(f"🟢 Running clients: {stats['platform']['running_clients']}")
+        # Get enhanced stats from launcher
+        stats = self.launcher.get_enhanced_platform_stats()
+        platform_stats = stats["platform"]
+        health_stats = stats["health"]
+
+        # Platform overview
+        print(f"🕐 Platform Uptime: {platform_stats['uptime_hours']:.1f} hours")
+        print(f"🔄 Total Restarts: {platform_stats['total_restarts']}")
+        print(f"📊 Total Clients: {platform_stats['total_clients']}")
+        print(f"✅ Healthy Clients: {health_stats['healthy_clients']}")
+        print(f"⚠️ Clients with Issues: {health_stats['clients_with_issues']}")
+        print(f"🔧 Auto-fixes Applied: {health_stats['total_auto_fixes']}")
+        print(f"🤖 Auto-healing: {'Enabled' if health_stats['auto_healing_enabled'] else 'Disabled'}")
         print()
 
-        # Client details
-        if stats['clients']:
-            print("Client Details:")
-            print("-" * 40)
-            for client_id, client_stats in stats['clients'].items():
-                status = "🟢 Running" if client_stats['running'] else "🔴 Stopped"
-                print(f"{status} {client_id}")
-                if client_stats['running']:
-                    print(f"  📈 Memory: {client_stats['memory_mb']:.1f}MB")
-                    print(f"  ⚡ CPU: {client_stats['cpu_percent']:.1f}%")
-                    print(f"  🔄 Restarts: {client_stats['restart_count']}")
+        # Enhanced client details
+        if stats["clients"]:
+            print("Detailed Client Status:")
+            print("-" * 50)
+
+            for client_id, client_stats in stats["clients"].items():
+                status_icon = "🟢" if client_stats["running"] else "🔴"
+                health_icon = "✅" if client_stats["health_status"].get("config_health") == "healthy" else "⚠️"
+
+                print(f"{status_icon} {client_id} {health_icon}")
+
+                # Show health information
+                health_status = client_stats["health_status"]
+                config_health = health_status.get("config_health", "unknown")
+                print(f"   🏥 Config Health: {config_health}")
+
+                # Show issues if any
+                issues = client_stats.get("config_issues", [])
+                if issues:
+                    print(f"   ⚠️ Issues: {len(issues)}")
+                    for issue in issues[:3]:  # Show first 3 issues
+                        print(f"      • {issue}")
+                    if len(issues) > 3:
+                        print(f"      • ... and {len(issues) - 3} more")
+
+                # Show auto-fixes applied
+                auto_fixes = client_stats.get("auto_fixes_applied", 0)
+                if auto_fixes > 0:
+                    print(f"   🔧 Auto-fixes applied: {auto_fixes}")
+
+                # Show runtime stats if running
+                if client_stats["running"]:
+                    uptime_hours = client_stats["uptime_seconds"] / 3600
+                    print(f"   ⏱️ Uptime: {uptime_hours:.1f} hours")
+                    print(f"   💾 Memory: {client_stats['memory_mb']:.1f} MB")
+                    print(f"   ⚡ CPU: {client_stats['cpu_percent']:.1f}%")
+                    print(f"   🔄 Restarts: {client_stats['restart_count']}")
+
+                print()
+
+            # Show recent auto-fix log
+            auto_fix_log = stats.get("auto_fix_log", [])
+            if auto_fix_log:
+                print("Recent Auto-fixes:")
+                print("-" * 20)
+                for fix in auto_fix_log[-5:]:  # Show last 5
+                    timestamp = fix["timestamp"][:19]  # Remove microseconds
+                    print(f"   {timestamp}: {fix['action']}")
                 print()
         else:
             print("❌ No clients configured")
@@ -166,7 +211,7 @@ class PlatformMain:
             if 1 <= choice <= len(clients):
                 client_id = clients[choice - 1]
                 print(f"🚀 Starting {client_id}...")
-                success = await self.launcher.start_client(client_id)
+                success = self.launcher.start_client(client_id)  # Removed await - this is sync
                 if success:
                     print(f"✅ {client_id} started successfully")
                 else:
@@ -192,7 +237,7 @@ class PlatformMain:
             if 1 <= choice <= len(running_clients):
                 client_id = running_clients[choice - 1]
                 print(f"🛑 Stopping {client_id}...")
-                success = await self.launcher.stop_client(client_id)
+                success = await self.launcher.stop_client(client_id)  # This one IS async
                 if success:
                     print(f"✅ {client_id} stopped successfully")
                 else:
@@ -219,7 +264,7 @@ class PlatformMain:
             if 1 <= choice <= len(clients):
                 client_id = clients[choice - 1]
                 print(f"🔄 Restarting {client_id}...")
-                success = await self.launcher.restart_client(client_id)
+                success = await self.launcher.restart_client(client_id)  # This one IS async
                 if success:
                     print(f"✅ {client_id} restarted successfully")
                 else:
@@ -253,7 +298,7 @@ class PlatformMain:
         """Show platform logs."""
         print("📄 Recent Platform Logs:")
         print("  (This would show recent log entries)")
-        print("  For detailed logs, check: platform/logs/")
+        print("  For detailed logs, check: bot_platform/logs/")
 
     def _setup_signal_handlers(self) -> None:
         """Setup signal handlers for graceful shutdown."""
@@ -273,10 +318,37 @@ async def main():
     parser.add_argument("--status", action="store_true", help="Show platform status")
     parser.add_argument("--interactive", action="store_true", help="Interactive management mode")
 
+    # Enhanced arguments (removed duplicates)
+    parser.add_argument("--no-auto-heal", action="store_true",
+                        help="Disable auto-healing features")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="Show what would be auto-fixed without making changes")
+    parser.add_argument("--verbose", "-v", action="store_true",
+                        help="Enable verbose logging")
+
     args = parser.parse_args()
 
-    platform = PlatformMain()
+    # Create and configure launcher with enhanced arguments
+    launcher = PlatformLauncher()
 
+    # Handle enhanced arguments
+    if args.verbose:
+        import logging
+        logging.getLogger().setLevel(logging.DEBUG)
+        launcher.logger.info("🔍 Verbose logging enabled")
+
+    if args.no_auto_heal:
+        launcher.auto_healing_config["enabled"] = False
+        launcher.logger.info("🚫 Auto-healing disabled via command line")
+
+    if args.dry_run:
+        launcher.auto_healing_config["enabled"] = False
+        launcher.logger.info("🔍 Dry-run mode: Auto-healing disabled")
+
+    # Create platform manager with configured launcher
+    platform = PlatformMain(launcher)
+
+    # Handle command-line arguments
     if args.status:
         await platform.show_status()
     elif args.interactive:

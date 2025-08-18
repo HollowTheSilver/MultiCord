@@ -2,12 +2,12 @@
   "platform": {
     "name": "Multi-Client Discord Bot Platform",
     "version": "2.0.1",
-    "last_updated": "2025-08-17T21:13:40.983259"
+    "last_updated": "2025-08-17T23:37:15.477992"
   },
   "clients": [
     {
       "client_id": "client_two",
-      "display_name": "Client 2",
+      "display_name": "Client Two",
       "enabled": true,
       "auto_restart": true,
       "max_restarts": 5,
