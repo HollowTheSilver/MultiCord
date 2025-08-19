@@ -207,8 +207,31 @@ class ClientRunner:
 
             if validated_messages:
                 # Override any .env STATUS_MESSAGES with branding.py values
+                old_messages = bot.config.STATUS_MESSAGES.copy()
                 bot.config.STATUS_MESSAGES = validated_messages
                 bot.logger.info(f"✅ Applied {len(validated_messages)} status messages from branding.py")
+
+                # 🔧 CRITICAL FIX: Restart status cycling task if it's running
+                if (bot.config.ENABLE_STATUS_CYCLING and
+                        hasattr(bot, 'status_cycle_task') and
+                        bot.status_cycle_task.is_running()):
+
+                    bot.logger.info("🔄 Restarting status cycling task with updated messages")
+                    bot.status_cycle_task.cancel()
+
+                    # Reset activity index
+                    bot._activity_index = 0
+
+                    # Restart task with new interval if needed
+                    if len(validated_messages) > 1:
+                        bot.status_cycle_task.change_interval(seconds=bot.config.STATUS_CYCLE_INTERVAL)
+                        bot.status_cycle_task.start()
+                        bot.logger.info(f"✅ Status cycling restarted with {len(validated_messages)} status messages")
+                    else:
+                        # Single status - set immediately without cycling
+                        asyncio.create_task(bot._set_single_status())
+                        bot.logger.info("✅ Single status will be set on bot ready")
+
             else:
                 bot.logger.warning("No valid status messages found in branding.py, using defaults")
                 bot.config.STATUS_MESSAGES = [("🤖 Professional Bot", "custom")]
@@ -273,6 +296,29 @@ class ClientApplication(Application):
     def __init__(self, config: BotConfig, client_id: str, client_branding: Dict[str, Any],
                  client_features: Dict[str, Any]):
         """Initialize with client-specific configuration."""
+
+        # 🔧 CRITICAL FIX: Apply branding to config BEFORE calling super().__init__
+        # This ensures status messages are set before background tasks start
+        if client_branding and 'status_messages' in client_branding:
+            status_messages = client_branding['status_messages']
+            if status_messages:
+                # Validate and apply status messages before initialization
+                validated_messages = []
+                for status_item in status_messages:
+                    if isinstance(status_item, (tuple, list)) and len(status_item) >= 2:
+                        message, status_type = status_item[0], status_item[1]
+                        validated_messages.append((str(message.strip()), str(status_type)))
+
+                if validated_messages:
+                    config.STATUS_MESSAGES = validated_messages
+                    print(f"✅ Applied {len(validated_messages)} status messages from branding before initialization")
+
+        # Apply other branding to config
+        if client_branding:
+            if 'bot_name' in client_branding:
+                config.BOT_NAME = client_branding['bot_name']
+
+        # Now initialize with the updated config
         super().__init__(config)
 
         # Store client-specific data
