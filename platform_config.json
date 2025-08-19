@@ -2,7 +2,7 @@
   "platform": {
     "name": "Multi-Client Discord Bot Platform",
     "version": "2.0.2",
-    "last_updated": "2025-08-18T12:53:10.415693"
+    "last_updated": "2025-08-18T22:17:46.997731"
   },
   "auto_healing": {
     "enabled": true,
@@ -27,7 +27,9 @@
       "max_restarts": 5,
       "restart_delay": 30,
       "memory_limit_mb": 512,
-      "custom_env": {}
+      "custom_env": {},
+      "plan": "basic",
+      "created_at": "2025-08-18T01:11:07.290305+00:00"
     },
     {
       "client_id": "client_two",
@@ -37,7 +39,9 @@
       "max_restarts": 5,
       "restart_delay": 30,
       "memory_limit_mb": 512,
-      "custom_env": {}
+      "custom_env": {},
+      "plan": "enterprise",
+      "created_at": "2025-08-18T00:37:42.841205+00:00"
     }
   ]
 }
