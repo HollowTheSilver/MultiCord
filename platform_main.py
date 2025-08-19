@@ -191,7 +191,7 @@ class PlatformMain:
             print("  7. Create new client")
             print("  8. Delete client")
             print("  9. Run diagnostics")
-            print("  0. Quit")
+            print("  0. Exit management console")  # ← Clarified text
 
             try:
                 choice = input("\nSelect option (0-9): ").strip()
@@ -215,18 +215,21 @@ class PlatformMain:
                 elif choice == "9":
                     await self._run_diagnostics()
                 elif choice == "0":
-                    print("👋 Goodbye!")
+                    print("👋 Exiting management console...")
                     self.running = False
+                    break
                 else:
                     print("❌ Invalid option. Please choose 0-9.")
 
             except (KeyboardInterrupt, EOFError):
-                print("\n👋 Goodbye!")
+                print("\n👋 Exiting management console...")
+                print("✅ All running clients will continue running independently")
                 self.running = False
+                break
             except Exception as e:
                 print(f"❌ Error: {e}")
 
-        await self.orchestrator.shutdown()
+        print("📋 Management console closed. Use 'python platform_main.py --status' to check client status.")
 
     async def _start_client_interactive(self) -> None:
         """Start a client interactively."""

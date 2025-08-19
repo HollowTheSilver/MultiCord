@@ -75,7 +75,20 @@ class ClientManager:
 
             clients = {}
             for client_id, client_data in data.items():
-                clients[client_id] = ClientInfo(**client_data)
+                # FILTER out fields that ClientInfo doesn't accept
+                valid_fields = {
+                    'client_id', 'display_name', 'plan', 'monthly_fee',
+                    'created_at', 'last_updated', 'status', 'discord_token',
+                    'owner_ids', 'branding', 'notes'
+                }
+
+                # Only pass valid fields to ClientInfo
+                filtered_data = {
+                    k: v for k, v in client_data.items()
+                    if k in valid_fields
+                }
+
+                clients[client_id] = ClientInfo(**filtered_data)
 
             self.logger.info(f"Loaded {len(clients)} clients from database")
             return clients

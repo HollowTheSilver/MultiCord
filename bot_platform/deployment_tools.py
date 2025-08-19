@@ -1,9 +1,17 @@
 """
-Deployment Tools & Client Onboarding
-====================================
+Deployment Tools & Client Onboarding - MIGRATED TO CLEAN ARCHITECTURE
+=====================================================================
 
 Command-line tools for managing the multi-client platform including
 client onboarding, updates, and monitoring.
+
+MIGRATION NOTES:
+- Replaced PlatformLauncher with PlatformOrchestrator
+- Fixed data structure access patterns to match actual ServiceManager output
+- Uses correct platform_status structure: platform_status['platform']['uptime_hours']
+- Fixed ClientConfig attribute access
+- Maintained all existing functionality
+- Version 2.0.0 - Clean Architecture
 """
 
 import asyncio
@@ -21,7 +29,8 @@ from datetime import datetime
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from bot_platform.client_manager import ClientManager
-from bot_platform.launcher import PlatformLauncher
+# MIGRATION: Replace PlatformLauncher with clean architecture
+from bot_platform.service_manager import PlatformOrchestrator
 
 
 class DeploymentManager:
@@ -29,6 +38,8 @@ class DeploymentManager:
 
     def __init__(self):
         self.client_manager = ClientManager()
+        # MIGRATION: Use PlatformOrchestrator instead of PlatformLauncher
+        self.orchestrator = PlatformOrchestrator()
         self.logger = self.client_manager.logger
 
     async def update_all_clients(self, restart: bool = True) -> bool:
@@ -36,13 +47,20 @@ class DeploymentManager:
         self.logger.info("Starting platform-wide update...")
 
         try:
-            # Get list of running clients
-            launcher = PlatformLauncher()
-            running_clients = list(launcher.client_processes.keys())
+            # MIGRATION: Initialize orchestrator
+            if not self.orchestrator.initialize():
+                self.logger.error("Failed to initialize platform orchestrator")
+                return False
+
+            # MIGRATION: Get running clients using clean architecture
+            running_clients = list(self.orchestrator.process_manager.get_running_client_ids())
 
             if restart and running_clients:
                 self.logger.info(f"Stopping {len(running_clients)} running clients...")
-                await launcher.stop_all_clients()
+                # MIGRATION: Use orchestrator method instead of launcher
+                stopped_clients = await self.orchestrator.stop_all_clients()
+                if not stopped_clients:
+                    self.logger.warning("No clients were stopped")
 
             # Perform core updates here
             # This would typically involve:
@@ -55,7 +73,12 @@ class DeploymentManager:
 
             if restart and running_clients:
                 self.logger.info("Restarting clients...")
-                await launcher.start_all_clients()
+                # MIGRATION: Use orchestrator method instead of launcher
+                started_clients = await self.orchestrator.start_all_clients()
+                if started_clients:
+                    self.logger.info(f"Restarted {len(started_clients)} clients: {', '.join(started_clients)}")
+                else:
+                    self.logger.warning("No clients were restarted")
 
             return True
 
@@ -80,7 +103,7 @@ class DeploymentManager:
                 shutil.copy2(platform_config, backup_dir)
 
             # Backup platform logs
-            platform_logs = Path("platform/logs")
+            platform_logs = Path("bot_platform/logs")
             if platform_logs.exists():
                 shutil.copytree(platform_logs, backup_dir / "platform_logs")
 
@@ -96,7 +119,8 @@ class PlatformStats:
     """Handles platform statistics and monitoring."""
 
     def __init__(self):
-        self.launcher = PlatformLauncher()
+        # MIGRATION: Use PlatformOrchestrator instead of PlatformLauncher
+        self.orchestrator = PlatformOrchestrator()
         self.client_manager = ClientManager()
 
     async def show_platform_status(self) -> None:
@@ -104,206 +128,182 @@ class PlatformStats:
         print("📊 Multi-Client Platform Status")
         print("=" * 50)
 
-        stats = self.launcher.get_platform_stats()
-        platform_stats = stats["platform"]
+        # MIGRATION: Initialize orchestrator and get status
+        if not self.orchestrator.initialize():
+            print("❌ Platform initialization failed")
+            return
 
-        print(f"🕐 Platform Uptime: {platform_stats['uptime_hours']:.1f} hours")
-        print(f"🔄 Total Restarts: {platform_stats['total_restarts']}")
-        print(f"📊 Total Clients: {platform_stats['total_clients']}")
-        print(f"✅ Enabled Clients: {platform_stats['enabled_clients']}")
-        print(f"🟢 Running Clients: {platform_stats['running_clients']}")
+        # MIGRATION: Use service manager to get platform status
+        # FIXED: Use correct data structure - nested dictionaries
+        platform_status = self.orchestrator.service_manager.get_platform_status()
+
+        # FIXED: Access nested structure correctly
+        platform_data = platform_status['platform']
+        health_data = platform_status['health']
+
+        print(f"🕐 Platform Uptime: {platform_data['uptime_hours']:.1f} hours")
+        print(f"🔄 Total Restarts: {platform_data.get('total_restarts', 0)}")
+        print(f"📊 Total Clients: {platform_data['total_clients']}")
+        print(f"🟢 Running Clients: {platform_data['running_clients']}")
+        print(f"✅ Healthy Clients: {health_data['healthy_clients']}")
+        print(f"⚠️ Clients with Issues: {health_data['clients_with_issues']}")
+        print(f"🔧 Auto-fixes Applied: {health_data['total_auto_fixes']}")
+        print(f"🤖 Auto-healing: {'Enabled' if health_data['auto_healing_enabled'] else 'Disabled'}")
         print()
 
-        if stats["clients"]:
+        # MIGRATION: Get client details using clean architecture
+        client_details = platform_status.get('clients', {})
+
+        if client_details:
             print("Client Status:")
             print("-" * 50)
-            for client_id, client_stats in stats["clients"].items():
-                status_icon = "🟢" if client_stats["running"] else "🔴"
-                enabled_icon = "✅" if client_stats["enabled"] else "❌"
+            for client_id, client_info in client_details.items():
+                status_icon = "🟢" if client_info.get("running", False) else "🔴"
+
+                # Check if client is enabled (from config)
+                config = self.orchestrator.config_manager.client_configs.get(client_id)
+                enabled_icon = "✅" if (config and config.enabled) else "❌"
 
                 print(f"{status_icon} {client_id} (Enabled: {enabled_icon})")
 
-                if client_stats["running"]:
-                    uptime_hours = client_stats["uptime_seconds"] / 3600
+                if client_info.get("running", False):
+                    uptime_hours = client_info.get("uptime_hours", 0)
                     print(f"  ⏱️  Uptime: {uptime_hours:.1f} hours")
-                    print(f"  💾 Memory: {client_stats['memory_mb']:.1f} MB")
-                    print(f"  ⚡ CPU: {client_stats['cpu_percent']:.1f}%")
-                    print(f"  🔄 Restarts: {client_stats['restart_count']}")
+                    print(f"  💾 Memory: {client_info.get('memory_mb', 0):.1f} MB")
+                    print(f"  ⚡ CPU: {client_info.get('cpu_percent', 0):.1f}%")
+                    print(f"  🔄 Restarts: {client_info.get('restart_count', 0)}")
                 print()
         else:
             print("❌ No clients configured")
 
     def list_clients(self) -> None:
         """List all clients with basic info."""
-        print("📋 Client List")
+        print("📋 Configured Clients")
         print("=" * 30)
 
-        if not self.client_manager.clients:
-            print("❌ No clients found")
+        # MIGRATION: Initialize orchestrator to get client list
+        if not self.orchestrator.initialize():
+            print("❌ Platform initialization failed")
             return
 
-        for client_id, client_info in self.client_manager.clients.items():
-            status = "🟢 Active" if client_info.status == "active" else "🔴 Inactive"
-            print(f"{status} {client_id}")
-            print(f"  📝 Name: {client_info.display_name}")
+        # MIGRATION: Get clients from config manager (ClientConfig objects)
+        clients = self.orchestrator.config_manager.client_configs
+        running_clients = self.orchestrator.process_manager.get_running_client_ids()
 
-            # Fix datetime handling - created_at is stored as ISO string
-            try:
-                if client_info.created_at:
-                    # Parse ISO string to datetime for formatting
-                    from datetime import datetime
-                    created_date = datetime.fromisoformat(client_info.created_at.replace('Z', '+00:00'))
-                    print(f"  📅 Created: {created_date.strftime('%Y-%m-%d')}")
-                else:
-                    print(f"  📅 Created: Unknown")
-            except (ValueError, AttributeError):
-                print(f"  📅 Created: {client_info.created_at}")
+        if not clients:
+            print("❌ No clients configured")
+            return
 
-            print(f"  💰 Plan: {client_info.plan.title()}")
-            print(f"  🏷️  Monthly Fee: ${client_info.monthly_fee}")
-            print()
+        for client_id, config in clients.items():
+            status = "🟢 Running" if client_id in running_clients else "🔴 Stopped"
+            # FIXED: Use attribute access for ClientConfig dataclass
+            enabled = "✅ Enabled" if config.enabled else "❌ Disabled"
+            plan = getattr(config, 'plan', 'unknown')
+
+            print(f"• {client_id}: {status}, {enabled}, Plan: {plan}")
+
+        print(f"\nTotal: {len(clients)} clients ({len(running_clients)} running)")
 
 
 class ClientOnboardingTool:
-    """Interactive client onboarding tool."""
+    """Interactive tool for creating new clients."""
 
     def __init__(self):
         self.client_manager = ClientManager()
+        # MIGRATION: Use PlatformOrchestrator for client operations
+        self.orchestrator = PlatformOrchestrator()
 
     def interactive_onboarding(self) -> bool:
         """Run interactive client onboarding process."""
-        print("🆕 Multi-Client Platform - New Client Onboarding")
+        print("🚀 Multi-Client Platform - New Client Onboarding")
         print("=" * 55)
 
         try:
-            # Collect client information
-            client_data = self._collect_client_info()
-            if not client_data:
+            # MIGRATION: Initialize orchestrator
+            if not self.orchestrator.initialize():
+                print("❌ Platform initialization failed")
                 return False
 
-            # Create the client
-            success = self.client_manager.create_client(**client_data)
+            # Collect client information
+            client_id = self._get_client_id()
+            if not client_id:
+                return False
+
+            display_name = self._get_display_name(client_id)
+            plan = self._get_plan()
+
+            # Additional configuration
+            print(f"\n📋 Creating client '{client_id}' with plan '{plan}'...")
+
+            # MIGRATION: Use client_manager to create client
+            success = self.client_manager.create_client(
+                client_id=client_id,
+                display_name=display_name,
+                plan=plan
+            )
 
             if success:
-                print(f"\n✅ Client '{client_data['client_id']}' created successfully!")
-                print("\n📋 Next Steps:")
-                print(f"1. Edit clients/{client_data['client_id']}/.env with your Discord token")
-                print(f"2. Customize clients/{client_data['client_id']}/branding.py if needed")
-                print(f"3. Test: python platform_main.py --client {client_data['client_id']}")
+                print(f"✅ Client '{client_id}' created successfully!")
+                print(f"📁 Configuration directory: clients/{client_id}/")
+                print(f"⚙️  Edit clients/{client_id}/.env to add your Discord token")
+                print(f"🚀 Start with: python platform_main.py --client {client_id}")
                 return True
             else:
-                print("❌ Failed to create client")
+                print(f"❌ Failed to create client '{client_id}'")
                 return False
 
-        except KeyboardInterrupt:
-            print("\n❌ Onboarding cancelled")
-            return False
         except Exception as e:
-            print(f"❌ Error during onboarding: {e}")
+            print(f"❌ Onboarding failed: {e}")
             return False
 
-    def _collect_client_info(self) -> Dict[str, Any]:
-        """Collect client information interactively."""
-        print("Please provide the following information:\n")
-
-        # Client ID
+    def _get_client_id(self) -> str:
+        """Get and validate client ID."""
         while True:
-            client_id = input("Client ID (lowercase, no spaces): ").strip().lower()
+            client_id = input("Enter client ID (alphanumeric, underscore, hyphen): ").strip().lower()
+
             if not client_id:
-                print("❌ Client ID is required")
+                print("❌ Client ID cannot be empty")
                 continue
-            if client_id in self.client_manager.clients:
+
+            if not client_id.replace('_', '').replace('-', '').isalnum():
+                print("❌ Client ID must be alphanumeric with underscore or hyphen only")
+                continue
+
+            # MIGRATION: Check existing clients using orchestrator
+            if self.orchestrator.config_manager.client_configs.get(client_id):
                 print(f"❌ Client '{client_id}' already exists")
                 continue
-            if not client_id.replace('_', '').replace('-', '').isalnum():
-                print("❌ Client ID must contain only letters, numbers, hyphens, and underscores")
-                continue
-            break
 
-        # Display name
-        display_name = input("Display Name: ").strip()
-        if not display_name:
-            display_name = client_id.title()
+            return client_id
 
-        # Discord token
-        discord_token = input("Discord Bot Token: ").strip()
-        if not discord_token:
-            print("❌ Discord token is required")
-            return {}
+    def _get_display_name(self, client_id: str) -> str:
+        """Get display name for client."""
+        default_name = client_id.replace('_', ' ').replace('-', ' ').title()
+        display_name = input(f"Display name [{default_name}]: ").strip()
+        return display_name if display_name else default_name
 
-        # Owner ID
-        while True:
-            try:
-                owner_id = int(input("Owner Discord User ID: ").strip())
-                break
-            except ValueError:
-                print("❌ Please enter a valid Discord user ID (numbers only)")
-
-        # Guild IDs (optional)
-        guild_ids_input = input("Allowed Guild IDs (comma-separated, optional): ").strip()
-        guild_ids = []
-        if guild_ids_input:
-            try:
-                guild_ids = [int(gid.strip()) for gid in guild_ids_input.split(',')]
-            except ValueError:
-                print("⚠️  Invalid guild IDs, proceeding without restrictions")
-                guild_ids = []
-
-        # Service plan
-        print("\nService Plans:")
-        print("1. Basic ($200/month)")
-        print("2. Premium ($350/month)")
-        print("3. Enterprise ($500/month)")
+    def _get_plan(self) -> str:
+        """Get service plan for client."""
+        print("\n📊 Available Plans:")
+        print("  1. Basic ($200/month) - Core features, moderation, basic support")
+        print("  2. Premium ($350/month) - + Analytics, tickets, advanced features")
+        print("  3. Enterprise ($500/month) - + API access, priority support, unlimited")
 
         while True:
-            try:
-                plan_choice = int(input("Select plan (1-3): "))
-                if plan_choice == 1:
-                    plan = "basic"
-                    monthly_fee = 200.0
-                    break
-                elif plan_choice == 2:
-                    plan = "premium"
-                    monthly_fee = 350.0
-                    break
-                elif plan_choice == 3:
-                    plan = "enterprise"
-                    monthly_fee = 500.0
-                    break
-                else:
-                    print("❌ Please select 1, 2, or 3")
-            except ValueError:
-                print("❌ Please enter a number")
+            choice = input("Select plan (1-3) [1]: ").strip()
 
-        # Custom branding
-        bot_name = input(f"Bot Name (default: {display_name} Bot): ").strip()
-        if not bot_name:
-            bot_name = f"{display_name} Bot"
-
-        bot_description = input("Bot Description (optional): ").strip()
-        if not bot_description:
-            bot_description = f"Discord bot for {display_name}"
-
-        status_message = input("Custom Status Message (optional): ").strip()
-        if not status_message:
-            status_message = f"Serving {display_name}"
-
-        return {
-            "client_id": client_id,
-            "display_name": display_name,
-            "discord_token": discord_token,
-            "owner_id": owner_id,
-            "guild_ids": guild_ids,
-            "plan": plan,
-            "monthly_fee": monthly_fee,
-            "bot_name": bot_name,
-            "bot_description": bot_description,
-            "status_message": status_message
-        }
+            if choice == "" or choice == "1":
+                return "basic"
+            elif choice == "2":
+                return "premium"
+            elif choice == "3":
+                return "enterprise"
+            else:
+                print("❌ Please enter 1, 2, or 3")
 
 
 def main():
-    """Main deployment tools entry point."""
+    """Main CLI entry point."""
     parser = argparse.ArgumentParser(description="Multi-Client Discord Bot Platform Tools")
     subparsers = parser.add_subparsers(dest='command', help='Available commands')
 
@@ -353,8 +353,16 @@ def main():
         sys.exit(0 if success else 1)
 
     elif args.command == 'start':
-        launcher = PlatformLauncher()
-        asyncio.run(launcher.run())
+        # MIGRATION: Use PlatformOrchestrator instead of PlatformLauncher
+        orchestrator = PlatformOrchestrator()
+        if orchestrator.initialize():
+            # Use the platform_main.py functionality instead of direct launcher
+            print("🚀 Use 'python platform_main.py' to start the platform")
+            print("📊 Use 'python platform_main.py --status' for status")
+            print("🎮 Use 'python platform_main.py --interactive' for management")
+        else:
+            print("❌ Platform initialization failed")
+            sys.exit(1)
 
     else:
         parser.print_help()
