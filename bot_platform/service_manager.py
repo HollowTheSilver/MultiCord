@@ -2,11 +2,14 @@
 Service Manager & Platform Orchestrator
 ======================================
 
-ServiceManager: High-level business operations
+ServiceManager: High-level business operations using ClientManager as single source of truth
 PlatformOrchestrator: Coordinates all components with dependency injection
+
+Simplified - no database synchronization complexity.
 """
 
 import asyncio
+import shutil
 from typing import Dict, List, Optional, Any
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,7 +20,7 @@ from core.utils.loguruConfig import configure_logger
 
 
 class ServiceManager:
-    """High-level business operations and platform services."""
+    """High-level business operations using ClientManager as single source of truth."""
 
     def __init__(self, process_manager: ProcessManager, config_manager: ConfigManager):
         """Initialize with dependency injection."""
@@ -36,64 +39,56 @@ class ServiceManager:
         self.total_restarts = 0
         self.auto_fix_log = []
 
+        # Initialize ClientManager for FLAGS system
+        self._client_manager = None
+
+    def _get_client_manager(self):
+        """Lazy initialize ClientManager to avoid circular imports."""
+        if self._client_manager is None:
+            from .client_manager import ClientManager
+            self._client_manager = ClientManager()
+        return self._client_manager
+
     def get_platform_status(self) -> Dict[str, Any]:
         """Get comprehensive platform status."""
-        current_time = datetime.now(timezone.utc)
-        uptime_hours = (current_time - self.start_time).total_seconds() / 3600
+        # Calculate uptime
+        uptime_seconds = (datetime.now(timezone.utc) - self.start_time).total_seconds()
+        uptime_hours = uptime_seconds / 3600
 
-        # Get process status for all clients
-        all_processes = self.process_manager.get_all_processes()
+        # Get client information
+        total_clients = len(self.config_manager.client_configs)
+        running_clients = len(self.process_manager.get_running_client_ids())
+        enabled_clients = len([
+            c for c in self.config_manager.client_configs.values() if c.enabled
+        ])
 
-        # Get health status for all clients
-        health_summary = {
-            'healthy_clients': 0,
-            'clients_with_issues': 0,
-            'total_auto_fixes': len(self.auto_fix_log),
-            'auto_healing_enabled': self.config_manager.get_auto_healing_config().get('enabled', True)
-        }
-
-        # Combine process and config info
-        client_details = {}
-        for client_id, config in self.config_manager.client_configs.items():
-            # Get process status
-            process_status = all_processes.get(client_id, {
-                'running': False,
-                'status': 'stopped',
-                'restart_count': 0
-            })
-
-            # Get health status
-            health_status = self.config_manager.validate_client_health(client_id)
-
-            # Track health summary
-            if health_status['config_health'] == 'healthy':
-                health_summary['healthy_clients'] += 1
-            else:
-                health_summary['clients_with_issues'] += 1
-
-            # Combine all information
-            client_details[client_id] = {
-                **process_status,
-                'health_status': health_status,
-                'config_issues': health_status.get('issues', []),
-                'auto_fixes_applied': len([fix for fix in self.auto_fix_log if client_id in str(fix)])
-            }
+        # Get FLAGS system statistics
+        flags_clients = len(self.config_manager.get_flags_system_clients())
+        features_clients = len(self.config_manager.get_features_system_clients())
 
         return {
             'platform': {
-                'uptime_hours': round(uptime_hours, 1),
-                'total_clients': len(self.config_manager.client_configs),
-                'running_clients': len([c for c in all_processes.values() if c.get('running')]),
+                'uptime_hours': round(uptime_hours, 2),
                 'total_restarts': self.total_restarts,
-                'last_health_check': current_time.isoformat()
+                'auto_fixes_applied': len(self.auto_fix_log),
+                'last_auto_fix': self.auto_fix_log[-1] if self.auto_fix_log else None
             },
-            'health': health_summary,
-            'clients': client_details,
-            'auto_fix_log': self.auto_fix_log[-10:]  # Last 10 auto-fixes
+            'clients': {
+                'total': total_clients,
+                'running': running_clients,
+                'enabled': enabled_clients,
+                'stopped': total_clients - running_clients,
+                'flags_system': flags_clients,
+                'features_system': features_clients
+            },
+            'health': {
+                'platform_healthy': True,
+                'auto_healing_enabled': self.config_manager.get_auto_healing_config().get('enabled', True)
+            }
         }
 
     def start_client(self, client_id: str) -> bool:
-        """Start a specific client with business logic."""
+        """Start a specific client."""
         if client_id not in self.config_manager.client_configs:
             self.logger.error(f"Client {client_id} not found")
             return False
@@ -107,7 +102,6 @@ class ServiceManager:
         health = self.config_manager.validate_client_health(client_id)
         if health['config_health'] != 'healthy':
             self.logger.warning(f"Client {client_id} has health issues: {health['issues']}")
-            # Could add auto-healing here if enabled
 
         return self.process_manager.start_process(client_id, self.config_manager.client_configs)
 
@@ -163,72 +157,78 @@ class ServiceManager:
         return stopped_clients
 
     def create_client(self, client_id: str, display_name: str = None,
-                      plan: str = "basic", **kwargs) -> bool:
-        """Create a new client with business validation."""
-        if client_id in self.config_manager.client_configs:
-            self.logger.error(f"Client {client_id} already exists")
+                      plan: str = "basic", database_backend: str = "sqlite", **kwargs) -> bool:
+        """Create a new client using ClientManager FLAGS system."""
+        try:
+            client_manager = self._get_client_manager()
+
+            success = client_manager.create_client(
+                client_id=client_id,
+                display_name=display_name or client_id.replace('_', ' ').replace('-', ' ').title(),
+                plan=plan,
+                database_backend=database_backend,
+                **kwargs
+            )
+
+            if success:
+                # Reload ConfigManager to pick up new client from ClientManager
+                self.config_manager.load_client_configs()
+
+                self.logger.info(f"✅ Created client: {client_id} using FLAGS system")
+                self.auto_fix_log.append({
+                    'timestamp': datetime.now().isoformat(),
+                    'action': f'Created client {client_id} with FLAGS system',
+                    'type': 'client_creation'
+                })
+
+            return success
+
+        except Exception as e:
+            self.logger.error(f"Failed to create client {client_id}: {e}")
             return False
-
-        # Validate client_id format
-        if not client_id.replace('_', '').replace('-', '').isalnum():
-            self.logger.error(f"Invalid client_id format: {client_id}")
-            return False
-
-        # Create config
-        config = ClientConfig(
-            client_id=client_id,
-            display_name=display_name or client_id.replace('_', ' ').title(),
-            plan=plan,
-            **kwargs
-        )
-
-        # Add to configuration
-        success = self.config_manager.add_client_config(config)
-        if success:
-            self.logger.info(f"✅ Created client: {client_id}")
-            self.auto_fix_log.append({
-                'timestamp': datetime.now().isoformat(),
-                'action': f'Created client {client_id}',
-                'type': 'client_creation'
-            })
-
-        return success
 
     def delete_client(self, client_id: str, backup: bool = True) -> bool:
-        """Delete a client with optional backup."""
-        if client_id not in self.config_manager.client_configs:
-            self.logger.error(f"Client {client_id} not found")
+        """Delete a client with optional backup using ClientManager."""
+        try:
+            if client_id not in self.config_manager.client_configs:
+                self.logger.error(f"Client {client_id} not found")
+                return False
+
+            # Stop client if running
+            if client_id in self.process_manager.get_running_client_ids():
+                self.logger.info(f"Stopping {client_id} before deletion...")
+                self.stop_client(client_id)
+
+            # Create backup if requested
+            if backup:
+                backup_success = self._backup_client(client_id)
+                if not backup_success:
+                    self.logger.warning(f"Backup failed for {client_id}, continuing with deletion...")
+
+            # Use ClientManager to delete
+            client_manager = self._get_client_manager()
+            success = client_manager.delete_client(client_id)
+
+            if success:
+                # Reload ConfigManager to reflect deletion
+                self.config_manager.load_client_configs()
+
+                self.logger.info(f"🗑️ Deleted client: {client_id}")
+                self.auto_fix_log.append({
+                    'timestamp': datetime.now().isoformat(),
+                    'action': f'Deleted client {client_id}',
+                    'type': 'client_deletion'
+                })
+
+            return success
+
+        except Exception as e:
+            self.logger.error(f"Failed to delete client {client_id}: {e}")
             return False
-
-        # Stop client if running
-        if client_id in self.process_manager.get_running_client_ids():
-            self.logger.info(f"Stopping {client_id} before deletion...")
-            self.stop_client(client_id)
-
-        # Create backup if requested
-        if backup:
-            backup_success = self._backup_client(client_id)
-            if not backup_success:
-                self.logger.warning(f"Backup failed for {client_id}, continuing with deletion...")
-
-        # Remove from configuration
-        success = self.config_manager.remove_client_config(client_id)
-        if success:
-            self.logger.info(f"🗑️ Deleted client: {client_id}")
-            self.auto_fix_log.append({
-                'timestamp': datetime.now().isoformat(),
-                'action': f'Deleted client {client_id}',
-                'type': 'client_deletion'
-            })
-
-        return success
 
     def _backup_client(self, client_id: str) -> bool:
         """Create backup of client data."""
         try:
-            import shutil
-            from datetime import datetime
-
             client_dir = Path("clients") / client_id
             if not client_dir.exists():
                 return True  # Nothing to backup
@@ -266,7 +266,6 @@ class ServiceManager:
         for client_id in self.config_manager.client_configs:
             health = self.config_manager.validate_client_health(client_id)
             if health['config_health'] != 'healthy':
-                # Could add more auto-healing logic here
                 self.logger.info(f"Client {client_id} needs attention: {health['issues']}")
 
         if fixes_applied > 0:
@@ -310,7 +309,7 @@ class PlatformOrchestrator:
         try:
             self.logger.info("🚀 Initializing Multi-Client Discord Bot Platform")
 
-            # Load configuration
+            # Load configuration from ClientManager
             self.config_manager.load_client_configs()
 
             # Log summary
@@ -374,7 +373,7 @@ class PlatformOrchestrator:
         return await self.service_manager.stop_all_clients()
 
     def create_client(self, client_id: str, **kwargs) -> bool:
-        """Create a new client."""
+        """Create a new client using FLAGS system."""
         if not self.initialized:
             self.logger.error("Platform not initialized")
             return False
@@ -407,8 +406,8 @@ class PlatformOrchestrator:
         # Stop all clients
         await self.stop_all_clients()
 
-        # Save configurations
-        self.config_manager.save_client_configs()
+        # Save platform configuration (not client data)
+        self.config_manager.save_platform_config()
 
         self.logger.info("✅ Platform shutdown complete")
         self.initialized = False
