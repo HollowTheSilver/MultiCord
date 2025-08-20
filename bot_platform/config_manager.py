@@ -2,10 +2,8 @@
 Config Manager - Unified Configuration Management
 ===============================================
 
-Handles all configuration operations:
-- Client discovery from all sources
-- Configuration synchronization
-- Health checks and validation
+Integrates with ClientManager FLAGS system for unified client discovery.
+Handles all configuration operations and client lifecycle management.
 """
 
 import json
@@ -55,13 +53,14 @@ class DiscoveryResults:
 
 
 class ConfigManager:
-    """Unified configuration management."""
+    """Unified configuration management integrated with ClientManager."""
 
     def __init__(self, config_path: str = "platform_config.json"):
         """Initialize configuration manager."""
         self.config_path = Path(config_path)
         self.clients_dir = Path("clients")
-        self.client_manager_db = Path("bot_platform/clients.json")
+        # Updated to match ClientManager database file
+        self.client_manager_db = Path("bot_platform/clients_db.json")
 
         self.logger = configure_logger(
             log_dir="bot_platform/logs",
@@ -86,7 +85,7 @@ class ConfigManager:
         # 1. Discover from directories
         results.directories = self._discover_from_directories()
 
-        # 2. Discover from client manager database
+        # 2. Discover from ClientManager database (flags system)
         results.database = self._discover_from_database()
 
         # 3. Discover from platform config
@@ -118,31 +117,35 @@ class ConfigManager:
 
             client_id = client_dir.name
 
-            # Check for required files
-            required_files = ['config.json', '.env']
-            existing_files = []
-            missing_files = []
+            # Check for FLAGS system files (new) or features system files (old)
+            flags_file = client_dir / 'flags.py'
+            features_file = client_dir / 'features.py'
+            config_file = client_dir / 'config.py'
+            env_file = client_dir / '.env'
 
-            for file_name in required_files:
-                file_path = client_dir / file_name
-                if file_path.exists():
-                    existing_files.append(file_name)
-                else:
-                    missing_files.append(file_name)
+            # Determine system type and completeness
+            has_flags = flags_file.exists()
+            has_features = features_file.exists()
+            has_config = config_file.exists()
+            has_env = env_file.exists()
+
+            system_type = "FLAGS" if has_flags else ("FEATURES" if has_features else "INCOMPLETE")
+            is_complete = has_env and (has_flags or has_features)
 
             # Load directory config if it exists
             config_data = {}
-            config_file = client_dir / 'config.json'
             if config_file.exists():
                 try:
+                    spec = {}
                     with open(config_file, 'r', encoding='utf-8') as f:
-                        file_config = json.load(f)
+                        exec(f.read(), spec)
 
-                    # Extract client info from config structure
-                    if 'client_info' in file_config:
-                        config_data.update(file_config['client_info'])
-                    if 'bot_config' in file_config:
-                        config_data.update(file_config['bot_config'])
+                    if 'CLIENT_CONFIG' in spec:
+                        client_config = spec['CLIENT_CONFIG']
+                        if 'client_info' in client_config:
+                            config_data.update(client_config['client_info'])
+                        if 'bot_config' in client_config:
+                            config_data.update(client_config['bot_config'])
 
                 except Exception as e:
                     self.logger.debug(f"Could not read config for {client_id}: {e}")
@@ -150,16 +153,17 @@ class ConfigManager:
             clients[client_id] = {
                 'source': 'directory',
                 'path': str(client_dir),
-                'is_complete': len(missing_files) == 0,
-                'existing_files': existing_files,
-                'missing_files': missing_files,
+                'system_type': system_type,
+                'is_complete': is_complete,
+                'has_flags': has_flags,
+                'has_features': has_features,
                 'config': config_data
             }
 
         return clients
 
     def _discover_from_database(self) -> Dict[str, Dict]:
-        """Discover clients from client manager database."""
+        """Discover clients from ClientManager database (FLAGS system)."""
         clients = {}
 
         if not self.client_manager_db.exists():
@@ -170,14 +174,29 @@ class ConfigManager:
                 db_data = json.load(f)
 
             for client_id, client_data in db_data.items():
+                # Convert ClientManager's ClientInfo to ConfigManager format
                 clients[client_id] = {
                     'source': 'database',
-                    'data': client_data,
+                    'data': {
+                        'client_id': client_data.get('client_id', client_id),
+                        'display_name': client_data.get('display_name', client_id),
+                        'plan': client_data.get('plan', 'basic'),
+                        'enabled': True,  # Default for ClientManager clients
+                        'created_at': client_data.get('created_at'),
+                        'last_updated': client_data.get('last_updated'),
+                        'status': client_data.get('status', 'active'),
+                        'monthly_fee': client_data.get('monthly_fee', 0.0),
+                        'discord_token': client_data.get('discord_token'),
+                        'owner_ids': client_data.get('owner_ids'),
+                        'branding': client_data.get('branding', {}),
+                        'notes': client_data.get('notes', '')
+                    },
+                    'system_type': 'FLAGS',
                     'last_updated': client_data.get('last_updated')
                 }
 
         except Exception as e:
-            self.logger.debug(f"Could not read client database: {e}")
+            self.logger.debug(f"Could not read ClientManager database: {e}")
 
         return clients
 
@@ -206,7 +225,7 @@ class ConfigManager:
         return clients
 
     def merge_client_configs(self, discovery_results: DiscoveryResults) -> Dict[str, ClientConfig]:
-        """Merge configuration from all sources with priority."""
+        """Merge configuration from all sources with priority: database > platform_config > directory."""
         merged_configs = {}
 
         # Get all unique client IDs
@@ -219,7 +238,7 @@ class ConfigManager:
             # Start with defaults
             config_data = {
                 'client_id': client_id,
-                'display_name': client_id.replace('_', ' ').title(),
+                'display_name': client_id.replace('_', ' ').replace('-', ' ').title(),
                 'enabled': True,
                 'auto_restart': True,
                 'max_restarts': 5,
@@ -244,18 +263,23 @@ class ConfigManager:
 
             # Create ClientConfig object
             try:
-                merged_configs[client_id] = ClientConfig(**{
+                # Filter to only include valid ClientConfig fields
+                valid_fields = {
                     k: v for k, v in config_data.items()
                     if k in ['client_id', 'display_name', 'enabled', 'auto_restart',
                              'max_restarts', 'restart_delay', 'memory_limit_mb',
                              'custom_env', 'plan', 'created_at']
-                })
+                }
+
+                merged_configs[client_id] = ClientConfig(**valid_fields)
+
             except Exception as e:
                 self.logger.warning(f"Error creating config for {client_id}: {e}")
                 # Create minimal config
                 merged_configs[client_id] = ClientConfig(
                     client_id=client_id,
-                    display_name=client_id.replace('_', ' ').title()
+                    display_name=config_data.get('display_name', client_id.replace('_', ' ').title()),
+                    plan=config_data.get('plan', 'basic')
                 )
 
         return merged_configs
@@ -267,21 +291,18 @@ class ConfigManager:
         return self.client_configs
 
     def save_client_configs(self) -> bool:
-        """Save client configurations back to database and platform config."""
+        """Save client configurations back to platform config."""
         try:
-            # Save to client manager database
-            if self.client_manager_db.parent.exists():
-                db_data = {}
-                for client_id, config in self.client_configs.items():
-                    config_dict = asdict(config)
-                    config_dict['last_updated'] = datetime.now().isoformat()
-                    db_data[client_id] = config_dict
+            # Update platform config with current client list
+            self.platform_config['clients'] = [
+                asdict(config) for config in self.client_configs.values()
+            ]
 
-                with open(self.client_manager_db, 'w', encoding='utf-8') as f:
-                    json.dump(db_data, f, indent=2, ensure_ascii=False)
+            # Update timestamp
+            self.platform_config['platform']['last_updated'] = datetime.now().isoformat()
 
-            # Save to platform config
-            self.save_platform_config()
+            with open(self.config_path, 'w', encoding='utf-8') as f:
+                json.dump(self.platform_config, f, indent=2, ensure_ascii=False)
 
             return True
 
@@ -373,41 +394,59 @@ class ConfigManager:
 
     def validate_client_health(self, client_id: str) -> Dict[str, Any]:
         """Validate health of a specific client."""
-        health_info = {
+        health_data = {
             'client_id': client_id,
             'config_health': 'unknown',
             'issues': [],
-            'last_check': datetime.now().isoformat()
+            'last_checked': datetime.now().isoformat()
         }
 
-        # Check if client exists in configs
-        if client_id not in self.client_configs:
-            health_info['config_health'] = 'missing'
-            health_info['issues'].append('Client not found in configuration')
-            return health_info
+        try:
+            client_dir = self.clients_dir / client_id
 
-        # Check directory structure
-        client_dir = self.clients_dir / client_id
-        if not client_dir.exists():
-            health_info['config_health'] = 'unhealthy'
-            health_info['issues'].append('Client directory missing')
-            return health_info
+            if not client_dir.exists():
+                health_data['config_health'] = 'missing'
+                health_data['issues'].append('Client directory does not exist')
+                return health_data
 
-        # Check required files
-        required_files = ['config.json', '.env']
-        missing_files = []
+            # Check for FLAGS or FEATURES system
+            flags_file = client_dir / 'flags.py'
+            features_file = client_dir / 'features.py'
+            config_file = client_dir / 'config.py'
+            env_file = client_dir / '.env'
+            branding_file = client_dir / 'branding.py'
 
-        for file_name in required_files:
-            if not (client_dir / file_name).exists():
-                missing_files.append(file_name)
+            issues = []
 
-        if missing_files:
-            health_info['config_health'] = 'unhealthy'
-            health_info['issues'].extend([f'Missing file: {f}' for f in missing_files])
-        else:
-            health_info['config_health'] = 'healthy'
+            # Check required files
+            if not env_file.exists():
+                issues.append('Missing .env file')
 
-        return health_info
+            if not config_file.exists():
+                issues.append('Missing config.py file')
+
+            if not branding_file.exists():
+                issues.append('Missing branding.py file')
+
+            # Check configuration system
+            if not flags_file.exists() and not features_file.exists():
+                issues.append('Missing flags.py or features.py file')
+            elif flags_file.exists() and features_file.exists():
+                issues.append('Both flags.py and features.py exist (should migrate to flags.py only)')
+
+            # Check custom_cogs directory
+            custom_cogs_dir = client_dir / 'custom_cogs'
+            if not custom_cogs_dir.exists():
+                issues.append('Missing custom_cogs directory')
+
+            health_data['issues'] = issues
+            health_data['config_health'] = 'healthy' if len(issues) == 0 else 'issues'
+
+        except Exception as e:
+            health_data['config_health'] = 'error'
+            health_data['issues'] = [f'Health check failed: {str(e)}']
+
+        return health_data
 
     def get_auto_healing_config(self) -> Dict[str, Any]:
         """Get auto-healing configuration."""
@@ -417,3 +456,55 @@ class ConfigManager:
             'sync_configurations': True,
             'validate_tokens': False
         })
+
+    def sync_with_client_manager(self) -> bool:
+        """Synchronize with ClientManager database."""
+        try:
+            # Import ClientManager to get latest data
+            from bot_platform.client_manager import ClientManager
+
+            client_manager = ClientManager()
+            client_manager_clients = client_manager.list_clients()
+
+            # Update our configs with ClientManager data
+            for client_id, client_info in client_manager_clients.items():
+                config = ClientConfig(
+                    client_id=client_info.client_id,
+                    display_name=client_info.display_name,
+                    plan=client_info.plan,
+                    created_at=client_info.created_at,
+                    enabled=True  # Default for ClientManager clients
+                )
+                self.client_configs[client_id] = config
+
+            # Save updated configs
+            return self.save_client_configs()
+
+        except Exception as e:
+            self.logger.error(f"Failed to sync with ClientManager: {e}")
+            return False
+
+    def get_flags_system_clients(self) -> List[str]:
+        """Get list of clients using FLAGS system."""
+        flags_clients = []
+
+        for client_id in self.client_configs:
+            client_dir = self.clients_dir / client_id
+            if (client_dir / 'flags.py').exists():
+                flags_clients.append(client_id)
+
+        return flags_clients
+
+    def get_features_system_clients(self) -> List[str]:
+        """Get list of clients using old FEATURES system."""
+        features_clients = []
+
+        for client_id in self.client_configs:
+            client_dir = self.clients_dir / client_id
+            flags_file = client_dir / 'flags.py'
+            features_file = client_dir / 'features.py'
+
+            if features_file.exists() and not flags_file.exists():
+                features_clients.append(client_id)
+
+        return features_clients
