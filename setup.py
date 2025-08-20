@@ -16,7 +16,7 @@ def main():
     subprocess.run([sys.executable, "-m", "pip", "install", "psutil"])
 
     # Create necessary directories
-    dirs = ["platform/logs", "backups", "data"]
+    dirs = ["bot_platform/logs", "backups", "data"]
     for directory in dirs:
         Path(directory).mkdir(parents=True, exist_ok=True)
         print(f"   Created directory: {directory}")

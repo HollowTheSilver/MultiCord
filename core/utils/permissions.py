@@ -284,7 +284,7 @@ class ChannelAnalysisStrategy:
 # // ========================================( Role Classification System )======================================== // #
 
 
-class EnhancedRoleClassifier:
+class RoleClassifier:
     """
     Intelligent role classification system that identifies role types and applies
     hierarchy-aware analysis only to authority roles.
@@ -321,7 +321,7 @@ class EnhancedRoleClassifier:
             'use_external_emojis': 5,
         }
 
-        # Enhanced role name patterns with confidence scores
+        # Role name patterns with confidence scores
         self.authority_patterns = {
             PermissionLevel.OWNER: [
                 (r'\bowner\b', 0.95),
@@ -521,7 +521,7 @@ class EnhancedRoleClassifier:
 
         # PRIORITY 6: No permissions + demographic patterns = COSMETIC
         if role.permissions.value == 0 or self._has_only_cosmetic_permissions(role):
-            # Enhanced demographic/cosmetic patterns
+            # Demographic/cosmetic patterns
             demographic_patterns = [
                 # Age groups (common reaction role pattern)
                 r'\d{2}[+-]', r'\d{2}-\d{2}', r'\d{2}\+',
@@ -820,7 +820,7 @@ class EnhancedRoleClassifier:
 
     def get_analysis_report(self, guild: discord.Guild) -> str:
         """Generate a detailed analysis report for debugging."""
-        lines = [f"Enhanced Role Analysis Report for {guild.name}"]
+        lines = [f"Role Analysis Report for {guild.name}"]
         lines.append("=" * 60)
 
         role_analyses = []
@@ -868,10 +868,10 @@ class EnhancedRoleClassifier:
         return "\n".join(lines)
 
 
-# // =======================================( Enhanced Permission Manager )======================================= // #
+# // =======================================( Permission Manager )======================================= // #
 
 
-class EnhancedPermissionManager:
+class PermissionManager:
     """
     Permission management system with intelligent role classification,
     hierarchy-aware auto-detection, and performance optimization.
@@ -906,8 +906,8 @@ class EnhancedPermissionManager:
         self.db_manager: Optional[DatabaseManager] = None
         self.persistence: Optional[Any] = None  # PermissionPersistence (delayed import)
 
-        # Enhanced role classification system
-        self.role_classifier = EnhancedRoleClassifier(self.logger)
+        # Role classification system
+        self.role_classifier = RoleClassifier(self.logger)
 
         # Performance tracking
         self.check_count = 0
@@ -920,7 +920,7 @@ class EnhancedPermissionManager:
         self._register_default_nodes()
 
     def _register_default_nodes(self) -> None:
-        """Register default permission nodes with enhanced hierarchy."""
+        """Register default permission nodes with hierarchy."""
         default_nodes = [
             # Basic commands - anyone can use
             PermissionNode("basic.ping", PermissionLevel.EVERYONE, "Use ping command"),
@@ -1003,7 +1003,7 @@ class EnhancedPermissionManager:
         if self.logger:
             self.logger.info(f"Auto-configuring permissions for guild: {guild.name} with intelligent role classification")
 
-        # Use enhanced role classification system
+        # Use role classification system
         confident_mappings, uncertain_roles, role_classifications = self.role_classifier.analyze_guild_roles(guild)
 
         # Get guild config
@@ -1680,7 +1680,7 @@ def require_permission(
             if not hasattr(ctx.bot, 'permission_manager'):
                 raise PermissionError("Permission system not initialized")
 
-            permission_manager: EnhancedPermissionManager = ctx.bot.permission_manager
+            permission_manager: PermissionManager = ctx.bot.permission_manager
 
             # Check permission
             has_permission = await permission_manager.check_permission(
@@ -1769,7 +1769,7 @@ def require_level(level: PermissionLevel, *, error_message: Optional[str] = None
             if not hasattr(ctx.bot, 'permission_manager'):
                 raise PermissionError("Permission system not initialized")
 
-            permission_manager: EnhancedPermissionManager = ctx.bot.permission_manager
+            permission_manager: PermissionManager = ctx.bot.permission_manager
 
             # Get user's permission level
             user_level = permission_manager.get_user_permission_level(ctx.author, ctx.guild)
@@ -1862,17 +1862,17 @@ def channel_only(*channel_ids: int) -> Callable:
 # // ========================================( Integration Function )======================================== // #
 
 
-def setup_enhanced_permission_system(bot: commands.Bot) -> EnhancedPermissionManager:
+def setup_permission_handler(bot: commands.Bot) -> PermissionManager:
     """
-    Set up the enhanced permission system for the bot.
+    Set up the permission handler for the bot.
 
     Args:
         bot: The bot instance
 
     Returns:
-        The enhanced permission manager instance
+        The permission manager instance
     """
-    permission_manager = EnhancedPermissionManager(bot)
+    permission_manager = PermissionManager(bot)
     bot.permission_manager = permission_manager
 
     if hasattr(bot, 'logger'):

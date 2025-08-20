@@ -3,7 +3,7 @@ Discord Bot Template
 =================================
 
 A comprehensive, production-ready Discord bot template with integrated Loguru logging,
-configuration management, graceful shutdown, enhanced embeds, professional error handling,
+configuration management, graceful shutdown, stylized embeds, professional error handling,
 and enterprise-grade permission system.
 
 Author: HollowTheSilver
@@ -35,17 +35,17 @@ try:
     from .config.settings import BotConfig
     from .utils.loguruConfig import configure_logger
     from .utils.permission_models import PermissionLevel
-    from .utils.permissions import setup_enhanced_permission_system
+    from .utils.permissions import setup_permission_handler
     from .utils.exceptions import BotError, ConfigurationError, ShutdownError
-    from .utils.error_handler import setup_enhanced_error_handling
+    from .utils.error_handler import setup_error_handler
 except ImportError:
     # Fall back to absolute imports (when run as standalone script)
     from core.config.settings import BotConfig
     from core.utils.loguruConfig import configure_logger
     from core.utils.permission_models import PermissionLevel
-    from core.utils.permissions import setup_enhanced_permission_system
+    from core.utils.permissions import setup_permission_handler
     from core.utils.exceptions import BotError, ConfigurationError, ShutdownError
-    from core.utils.error_handler import setup_enhanced_error_handling
+    from core.utils.error_handler import setup_error_handler
 
 if TYPE_CHECKING:
     from loguru import Logger
@@ -57,7 +57,7 @@ if TYPE_CHECKING:
 class Application(commands.Bot):
     """
     Discord bot with comprehensive logging, configuration management,
-    enhanced embeds, graceful shutdown capabilities, and enterprise permission system.
+    stylized embeds, graceful shutdown capabilities, and enterprise permission system.
     """
 
     def __init__(self, config: Optional[BotConfig] = None) -> None:
@@ -140,10 +140,10 @@ class Application(commands.Bot):
         """
         try:
             # Configure error handler
-            self.error_handler = setup_enhanced_error_handling(self)
+            self.error_handler = setup_error_handler(self)
 
             # Configure permission manager
-            self.permission_manager = setup_enhanced_permission_system(self)
+            self.permission_manager = setup_permission_handler(self)
 
             # Initialize database persistence
             if self.permission_manager:
@@ -491,7 +491,7 @@ class Application(commands.Bot):
 
     async def on_command_error(self, ctx: commands.Context, error: Exception) -> None:
         """
-        Global command error handler using enhanced error handler.
+        Global command error handler using the error handler.
         """
         if self.error_handler:
             await self.error_handler.handle_command_error(ctx, error)

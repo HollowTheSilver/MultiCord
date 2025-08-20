@@ -10,10 +10,10 @@ from .loguruConfig import configure_logger
 
 # Error handling
 from .error_handler import (
-    EnhancedErrorHandler,
+    ErrorHandler,
     ErrorContext,
     ErrorMessages,
-    setup_enhanced_error_handling
+    setup_error_handler
 )
 
 # Embed utilities
@@ -54,10 +54,10 @@ from .permission_models import (
 )
 
 from .permissions import (
-    setup_enhanced_permission_system,
+    setup_permission_handler,
     require_permission,
     require_level,
-    EnhancedPermissionManager,
+    PermissionManager,
     normalize_discord_text
 )
 
@@ -90,10 +90,10 @@ __all__ = [
     "configure_logger",
 
     # Error handling
-    "EnhancedErrorHandler",
+    "ErrorHandler",
     "ErrorContext",
     "ErrorMessages",
-    "setup_enhanced_error_handling",
+    "setup_error_handler",
 
     # Embeds
     "create_success_embed",
@@ -125,10 +125,10 @@ __all__ = [
     "PermissionOverride",
     "PermissionAuditEntry",
     "RoleAnalysis",
-    "setup_enhanced_permission_system",
+    "setup_permission_handler",
     "require_permission",
     "require_level",
-    "EnhancedPermissionManager",
+    "PermissionManager",
     "normalize_discord_text",
 
     # Exceptions

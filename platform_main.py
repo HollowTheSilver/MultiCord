@@ -93,7 +93,7 @@ class PlatformMain:
             print("🔌 Platform shutdown complete")
 
     async def show_status(self) -> None:
-        """Show enhanced platform status."""
+        """Show platform status."""
         if not self.orchestrator.initialize():
             print("❌ Platform initialization failed")
             return

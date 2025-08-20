@@ -1,5 +1,5 @@
 """
-Enhanced Error Handler
+Error Handler
 =====================
 
 Professional error handling system with contextual error messages, helpful suggestions,
@@ -35,7 +35,7 @@ from .exceptions import (
 
 
 class ErrorContext:
-    """Context information for enhanced error reporting."""
+    """Context information for error reporting."""
 
     def __init__(
             self,
@@ -147,12 +147,12 @@ class ErrorMessages:
     }
 
 
-# // ========================================( Enhanced Error Handler )======================================== // #
+# // ========================================( Error Handler )======================================== // #
 
 
-class EnhancedErrorHandler:
+class ErrorHandler:
     """
-    Enhanced error handler with contextual messages and embed support.
+    Error handler with contextual messages and embed support.
     """
 
     def __init__(self, bot: commands.Bot) -> None:
@@ -173,7 +173,7 @@ class EnhancedErrorHandler:
             error: commands.CommandError
     ) -> None:
         """
-        Handle command errors with enhanced messaging.
+        Handle command errors with messaging.
 
         Args:
             ctx: Command context
@@ -262,7 +262,7 @@ class EnhancedErrorHandler:
         # More than 5 errors in 5 minutes
         return len(self.recent_errors[user_id]) > 5
 
-    # // ========================================( Specific Error Handlers )======================================== // #
+    # // =======================================( Specific Error Handlers )======================================= // #
 
     async def _send_command_not_found_error(
             self,
@@ -674,7 +674,7 @@ class EnhancedErrorHandler:
 # // ========================================( Integration Function )======================================== // #
 
 
-def setup_enhanced_error_handling(bot: commands.Bot) -> EnhancedErrorHandler:
+def setup_error_handler(bot: commands.Bot) -> ErrorHandler:
     """
     Set up error handler for the bot application.
 
@@ -684,7 +684,7 @@ def setup_enhanced_error_handling(bot: commands.Bot) -> EnhancedErrorHandler:
     Returns:
         The error handler instance for further customization
     """
-    error_handler = EnhancedErrorHandler(bot)
+    error_handler = ErrorHandler(bot)
 
     # Store the error handler on the bot instance for access in Application class
     bot.error_handler = error_handler

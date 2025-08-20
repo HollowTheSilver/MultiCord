@@ -1,8 +1,8 @@
 """
-Enhanced Embeds with Client Branding
+Embeds with Client Branding
 ====================================
 
-Enhanced embed system that supports client-specific branding and customization.
+Embed system that supports client-specific branding and customization.
 """
 
 import discord
@@ -17,7 +17,7 @@ from .embeds import (
 
 
 class ClientEmbedBuilder(EmbedBuilder):
-    """Enhanced embed builder with client-specific branding support."""
+    """Embed builder with client-specific branding support."""
 
     def __init__(
             self,
@@ -99,7 +99,7 @@ class ClientEmbedBuilder(EmbedBuilder):
         return self
 
 
-# Enhanced creation functions with client branding
+# Creation functions with client branding
 def create_client_success_embed(
         bot,
         title: str = "Success",

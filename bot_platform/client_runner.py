@@ -155,7 +155,7 @@ class ClientRunner:
 
     def _apply_branding(self, bot: Application) -> None:
         """
-        Apply client-specific branding to the bot with enhanced status message handling.
+        Apply client-specific branding to the bot application.
 
         This method establishes branding.py as the single source of truth for status messages,
         providing robust validation and fallback handling.
@@ -168,7 +168,6 @@ class ClientRunner:
         bot.client_branding = self.branding
         bot.client_id = self.client_id
 
-        # ✅ ENHANCED STATUS MESSAGE HANDLING - Single Source of Truth
         status_messages = self.branding.get('status_messages', [])
 
         if status_messages:
@@ -268,7 +267,7 @@ class ClientRunner:
         print(f"🤖 Starting Discord bot for client: {self.client_id}")
 
         try:
-            # Create enhanced bot application with client configuration
+            # Create bot application with client configuration
             bot = ClientApplication(
                 config=self.bot_config,
                 client_id=self.client_id,
@@ -291,7 +290,7 @@ class ClientRunner:
 
 
 class ClientApplication(Application):
-    """Enhanced Application class with client-specific features."""
+    """Application class with client-specific features."""
 
     def __init__(self, config: BotConfig, client_id: str, client_branding: Dict[str, Any],
                  client_features: Dict[str, Any]):
@@ -340,7 +339,7 @@ class ClientApplication(Application):
         return self.client_features.get(feature, True)
 
     async def on_ready(self) -> None:
-        """Enhanced on_ready with client-specific initialization."""
+        """Event on_ready with client-specific initialization."""
         await super().on_ready()
 
         # Log client-specific startup
@@ -354,7 +353,7 @@ class ClientApplication(Application):
             print(f"🟢 Client {self.client_id} ({self.get_branded_bot_name()}) is online!")
 
     def get_stats(self) -> Dict[str, Any]:
-        """Get enhanced stats with client information."""
+        """Get stats with client information."""
         stats = super().get_stats()
 
         # Add client-specific stats

@@ -6,7 +6,7 @@ Base commands cog featuring:
 - Beautiful, consistent embeds
 - Command cooldowns
 - Input validation
-- Enhanced error handling
+- Error handling
 - Better user experience
 """
 
@@ -34,12 +34,12 @@ from core.utils.embeds import (
 
 class BaseCommands(commands.Cog):
     """
-    Enhanced basic commands cog with beautiful embeds and improved UX.
+    Basic commands cog with beautiful embeds and improved UX.
     """
 
     def __init__(self, bot: commands.Bot) -> None:
         """
-        Initialize the Enhanced Basic Commands cog.
+        Initialize the Basic Commands cog.
 
         Args:
             bot: The bot instance
@@ -147,7 +147,7 @@ class BaseCommands(commands.Cog):
 
         return value.strip()
 
-    # // ========================================( Enhanced Commands )======================================== // #
+    # // ========================================( Base Commands )======================================== // #
 
     @commands.hybrid_command(
         name="ping",
@@ -199,7 +199,7 @@ class BaseCommands(commands.Cog):
     @commands.cooldown(2, 30, commands.BucketType.guild)  # 2 uses per 30 seconds per guild
     async def info(self, ctx: commands.Context) -> None:
         """
-        Display comprehensive bot information with enhanced styling.
+        Display comprehensive bot information with styling.
 
         Args:
             ctx: The command context
@@ -240,7 +240,7 @@ class BaseCommands(commands.Cog):
     @commands.cooldown(1, 10, commands.BucketType.user)
     async def uptime(self, ctx: commands.Context) -> None:
         """
-        Display bot uptime information with enhanced formatting.
+        Display bot uptime information with formatting.
 
         Args:
             ctx: The command context
@@ -644,7 +644,7 @@ class BaseCommands(commands.Cog):
     @commands.cooldown(3, 30, commands.BucketType.default)
     async def reload_cog(self, ctx: commands.Context, cog: str) -> None:
         """
-        Reload a specific cog with enhanced feedback.
+        Reload a specific cog with feedback.
 
         Args:
             ctx: The command context
@@ -719,7 +719,7 @@ class BaseCommands(commands.Cog):
 
 async def setup(bot: commands.Bot) -> None:
     """
-    Setup function to add the enhanced cog to the bot.
+    Setup function to add the cog to the bot.
 
     Args:
         bot: The bot instance

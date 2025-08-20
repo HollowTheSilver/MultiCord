@@ -17,7 +17,7 @@ from core.utils.permission_models import PermissionLevel, RoleType
 from core.utils.permissions import (
     require_permission,
     require_level,
-    EnhancedPermissionManager,
+    PermissionManager,
     normalize_discord_text
 )
 from core.utils.embeds import (
@@ -31,10 +31,10 @@ from core.utils.embeds import (
 from core.utils.exceptions import ValidationError
 
 
-class PermissionManager(commands.Cog):
+class Permissions(commands.Cog):
     """
     Comprehensive permission management interface for server administrators.
-    Enhanced with intelligent role classification, manual overrides, and Unicode text support.
+    Intelligent role classification, manual overrides, and Unicode text support.
     """
 
     def __init__(self, bot: commands.Bot) -> None:
@@ -65,7 +65,7 @@ class PermissionManager(commands.Cog):
             self.logger.error(f"Failed to register listener '{_listener}'")
 
     @property
-    def permission_manager(self) -> EnhancedPermissionManager:
+    def permission_manager(self) -> PermissionManager:
         """Get the permission manager instance."""
         if not hasattr(self.bot, 'permission_manager'):
             raise RuntimeError("Permission system not initialized")
@@ -1170,4 +1170,4 @@ class PermissionManager(commands.Cog):
 
 async def setup(bot: commands.Bot) -> None:
     """Setup function to add the permission manager commands cog to the bot."""
-    await bot.add_cog(PermissionManager(bot))
+    await bot.add_cog(Permissions(bot))

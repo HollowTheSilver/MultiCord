@@ -38,7 +38,7 @@ class ClientInfo:
 
 
 class ClientManager:
-    """Enhanced client manager with corrected directory paths and UTF-8 support."""
+    """Client manager with UTF-8 support."""
 
     def __init__(self):
         """Initialize the client manager."""

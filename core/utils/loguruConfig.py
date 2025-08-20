@@ -102,7 +102,7 @@ class LoggerState:
 
 def extra_filter(record: Dict[str, Any]) -> bool:
     """
-    Enhanced filter for formatting extra fields in log records.
+    Filter for formatting extra fields in log records.
     Handles both string and dictionary extra fields.
     """
     extras = record.get("extra", {})
@@ -186,7 +186,7 @@ def configure_logger(
     """
     Configure Loguru logger with Discord.py compatible formatting and error handling.
 
-    This enhanced version provides Discord.py compatible formatting that matches
+    This version provides Discord.py compatible formatting that matches
     the default Discord.py logging format and colors exactly for consistent output.
 
     Args:

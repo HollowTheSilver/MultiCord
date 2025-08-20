@@ -19,7 +19,7 @@ import discord
 
 class PermissionLevel(IntEnum):
     """
-    Enhanced universal permission levels with proper hierarchy.
+    Universal permission levels with proper hierarchy.
     These levels work across all Discord servers regardless of role names.
     """
     BANNED = -1        # Explicitly banned from using commands
