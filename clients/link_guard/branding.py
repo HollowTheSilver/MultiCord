@@ -28,8 +28,6 @@ BRANDING = {
     # These will cycle automatically based on STATUS_CYCLE_INTERVAL in .env
     "status_messages": [
         ("💻 Developed by Hollow", "custom"),
-        ("Custom Bot Online", "custom"),
-        ("Ready to help!", "custom")
         # Add more messages as needed:
         # ("Moderating servers", "watching"),
         # ("for commands", "listening"),

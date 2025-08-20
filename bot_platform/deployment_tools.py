@@ -139,16 +139,18 @@ class PlatformStats:
 
         # FIXED: Access nested structure correctly
         platform_data = platform_status['platform']
-        health_data = platform_status['health']
+        # health_data = platform_status['health']
+
+        # Get clients data from the status response
+        clients_data = platform_status.get('clients', {})
 
         print(f"🕐 Platform Uptime: {platform_data['uptime_hours']:.1f} hours")
-        print(f"🔄 Total Restarts: {platform_data.get('total_restarts', 0)}")
-        print(f"📊 Total Clients: {platform_data['total_clients']}")
-        print(f"🟢 Running Clients: {platform_data['running_clients']}")
-        print(f"✅ Healthy Clients: {health_data['healthy_clients']}")
-        print(f"⚠️ Clients with Issues: {health_data['clients_with_issues']}")
-        print(f"🔧 Auto-fixes Applied: {health_data['total_auto_fixes']}")
-        print(f"🤖 Auto-healing: {'Enabled' if health_data['auto_healing_enabled'] else 'Disabled'}")
+        print(f"🔄 Total Restarts: {platform_data['total_restarts']}")
+        print(f"📊 Total Clients: {clients_data.get('total', 0)}")
+        print(f"🟢 Running Clients: {clients_data.get('running', 0)}")
+        print(f"⏹️ Stopped Clients: {clients_data.get('stopped', 0)}")
+        print(f"✅ FLAGS System: {clients_data.get('flags_system', 0)}")
+        print(f"🔧 Auto-fixes Applied: {platform_data.get('auto_fixes_applied', 0)}")
         print()
 
         # MIGRATION: Get client details using clean architecture

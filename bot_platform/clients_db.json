@@ -11,5 +11,18 @@
     "notes": "",
     "created_at": "2025-08-20T14:41:30.513927+00:00",
     "last_updated": "2025-08-20T14:41:30.513927+00:00"
+  },
+  "digital_nas_app": {
+    "client_id": "digital_nas_app",
+    "display_name": "Digital Nas App",
+    "plan": "enterprise",
+    "monthly_fee": 500.0,
+    "status": "created",
+    "discord_token": null,
+    "owner_ids": "",
+    "branding": {},
+    "notes": "",
+    "created_at": "2025-08-20T22:14:55.692796+00:00",
+    "last_updated": "2025-08-20T22:14:55.692796+00:00"
   }
 }

@@ -111,15 +111,17 @@ class PlatformMain:
         platform_stats = status["platform"]
         health_stats = status["health"]
 
+        # Get clients data from the status response
+        clients_stats = status.get('clients', {})
+
         # Platform overview
         print(f"🕐 Platform Uptime: {platform_stats['uptime_hours']:.1f} hours")
         print(f"🔄 Total Restarts: {platform_stats['total_restarts']}")
-        print(f"📊 Total Clients: {platform_stats['total_clients']}")
-        print(f"🟢 Running Clients: {platform_stats['running_clients']}")
-        print(f"✅ Healthy Clients: {health_stats['healthy_clients']}")
-        print(f"⚠️ Clients with Issues: {health_stats['clients_with_issues']}")
-        print(f"🔧 Auto-fixes Applied: {health_stats['total_auto_fixes']}")
-        print(f"🤖 Auto-healing: {'Enabled' if health_stats['auto_healing_enabled'] else 'Disabled'}")
+        print(f"📊 Total Clients: {clients_stats.get('total', 0)}")
+        print(f"🟢 Running Clients: {clients_stats.get('running', 0)}")
+        print(f"⏹️ Stopped Clients: {clients_stats.get('stopped', 0)}")
+        print(f"✅ FLAGS System: {clients_stats.get('flags_system', 0)}")
+        print(f"🔧 Auto-fixes Applied: {platform_stats.get('auto_fixes_applied', 0)}")
         print()
 
         # Client details
