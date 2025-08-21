@@ -1,17 +1,17 @@
 """
-Deployment Tools & Client Onboarding - MIGRATED TO CLEAN ARCHITECTURE
-=====================================================================
+Deployment Tools & Client Onboarding
+==================================================================================
 
 Command-line tools for managing the multi-client platform including
 client onboarding, updates, and monitoring.
 
-MIGRATION NOTES:
-- Replaced PlatformLauncher with PlatformOrchestrator
-- Fixed data structure access patterns to match actual ServiceManager output
-- Uses correct platform_status structure: platform_status['platform']['uptime_hours']
-- Fixed ClientConfig attribute access
-- Maintained all existing functionality
-- Version 2.0.0 - Clean Architecture
+FIXES APPLIED:
+- Updated data structure access to match ServiceManager.get_platform_status()
+- Fixed client count fields: platform_data['total_clients'] -> clients_data['total']
+- Removed non-existent health fields (healthy_clients, clients_with_issues)
+- Updated auto-fixes field: health_data['total_auto_fixes'] -> platform_data['auto_fixes_applied']
+- Fixed client details to get running info directly from ProcessManager
+- Version 3.0.1
 """
 
 import asyncio
@@ -29,7 +29,6 @@ from datetime import datetime
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from bot_platform.client_manager import ClientManager
-# MIGRATION: Replace PlatformLauncher with clean architecture
 from bot_platform.service_manager import PlatformOrchestrator
 
 
@@ -38,7 +37,6 @@ class DeploymentManager:
 
     def __init__(self):
         self.client_manager = ClientManager()
-        # MIGRATION: Use PlatformOrchestrator instead of PlatformLauncher
         self.orchestrator = PlatformOrchestrator()
         self.logger = self.client_manager.logger
 
@@ -47,17 +45,14 @@ class DeploymentManager:
         self.logger.info("Starting platform-wide update...")
 
         try:
-            # MIGRATION: Initialize orchestrator
             if not self.orchestrator.initialize():
                 self.logger.error("Failed to initialize platform orchestrator")
                 return False
 
-            # MIGRATION: Get running clients using clean architecture
             running_clients = list(self.orchestrator.process_manager.get_running_client_ids())
 
             if restart and running_clients:
                 self.logger.info(f"Stopping {len(running_clients)} running clients...")
-                # MIGRATION: Use orchestrator method instead of launcher
                 stopped_clients = await self.orchestrator.stop_all_clients()
                 if not stopped_clients:
                     self.logger.warning("No clients were stopped")
@@ -73,7 +68,6 @@ class DeploymentManager:
 
             if restart and running_clients:
                 self.logger.info("Restarting clients...")
-                # MIGRATION: Use orchestrator method instead of launcher
                 started_clients = await self.orchestrator.start_all_clients()
                 if started_clients:
                     self.logger.info(f"Restarted {len(started_clients)} clients: {', '.join(started_clients)}")
@@ -88,6 +82,8 @@ class DeploymentManager:
 
     async def backup_all_clients(self) -> bool:
         """Create backups of all client data."""
+        self.logger.info("Creating backup of all client data...")
+
         try:
             backup_dir = Path("backups") / datetime.now().strftime("%Y%m%d_%H%M%S")
             backup_dir.mkdir(parents=True, exist_ok=True)
@@ -119,7 +115,6 @@ class PlatformStats:
     """Handles platform statistics and monitoring."""
 
     def __init__(self):
-        # MIGRATION: Use PlatformOrchestrator instead of PlatformLauncher
         self.orchestrator = PlatformOrchestrator()
         self.client_manager = ClientManager()
 
@@ -128,52 +123,67 @@ class PlatformStats:
         print("📊 Multi-Client Platform Status")
         print("=" * 50)
 
-        # MIGRATION: Initialize orchestrator and get status
         if not self.orchestrator.initialize():
             print("❌ Platform initialization failed")
             return
 
-        # MIGRATION: Use service manager to get platform status
-        # FIXED: Use correct data structure - nested dictionaries
+        # FIXED: Get platform status with correct data structure
         platform_status = self.orchestrator.service_manager.get_platform_status()
 
         # FIXED: Access nested structure correctly
         platform_data = platform_status['platform']
-        # health_data = platform_status['health']
+        clients_data = platform_status['clients']  # FIXED: Use clients section
+        health_data = platform_status['health']
 
-        # Get clients data from the status response
-        clients_data = platform_status.get('clients', {})
-
+        # FIXED: Use correct field names from actual data structure
         print(f"🕐 Platform Uptime: {platform_data['uptime_hours']:.1f} hours")
-        print(f"🔄 Total Restarts: {platform_data['total_restarts']}")
-        print(f"📊 Total Clients: {clients_data.get('total', 0)}")
-        print(f"🟢 Running Clients: {clients_data.get('running', 0)}")
-        print(f"⏹️ Stopped Clients: {clients_data.get('stopped', 0)}")
-        print(f"✅ FLAGS System: {clients_data.get('flags_system', 0)}")
-        print(f"🔧 Auto-fixes Applied: {platform_data.get('auto_fixes_applied', 0)}")
+        print(f"🔄 Total Restarts: {platform_data.get('total_restarts', 0)}")
+        print(f"📊 Total Clients: {clients_data['total']}")  # FIXED: clients_data['total']
+        print(f"🟢 Running Clients: {clients_data['running']}")  # FIXED: clients_data['running']
+        print(f"✅ Enabled Clients: {clients_data['enabled']}")  # FIXED: Use available field
+        print(f"⏹️ Stopped Clients: {clients_data['stopped']}")  # FIXED: Use available field
+        print(f"🔧 Auto-fixes Applied: {platform_data.get('auto_fixes_applied', 0)}")  # FIXED: platform_data
+        print(f"🤖 Auto-healing: {'Enabled' if health_data['auto_healing_enabled'] else 'Disabled'}")
         print()
 
-        # MIGRATION: Get client details using clean architecture
-        client_details = platform_status.get('clients', {})
+        # FIXED: Get detailed client information directly from managers
+        print("Client Status:")
+        print("-" * 50)
 
-        if client_details:
-            print("Client Status:")
-            print("-" * 50)
-            for client_id, client_info in client_details.items():
-                status_icon = "🟢" if client_info.get("running", False) else "🔴"
+        if self.orchestrator.config_manager.client_configs:
+            running_client_ids = self.orchestrator.process_manager.get_running_client_ids()
 
-                # Check if client is enabled (from config)
-                config = self.orchestrator.config_manager.client_configs.get(client_id)
-                enabled_icon = "✅" if (config and config.enabled) else "❌"
+            for client_id, config in self.orchestrator.config_manager.client_configs.items():
+                is_running = client_id in running_client_ids
+                status_icon = "🟢" if is_running else "🔴"
+                enabled_icon = "✅" if config.enabled else "❌"
 
                 print(f"{status_icon} {client_id} (Enabled: {enabled_icon})")
 
-                if client_info.get("running", False):
-                    uptime_hours = client_info.get("uptime_hours", 0)
-                    print(f"  ⏱️  Uptime: {uptime_hours:.1f} hours")
-                    print(f"  💾 Memory: {client_info.get('memory_mb', 0):.1f} MB")
-                    print(f"  ⚡ CPU: {client_info.get('cpu_percent', 0):.1f}%")
-                    print(f"  🔄 Restarts: {client_info.get('restart_count', 0)}")
+                if is_running:
+                    # Get process details if running
+                    process_info = self.orchestrator.process_manager.get_process_status(client_id)
+                    if process_info:
+                        uptime_hours = process_info.get("uptime_hours", 0)
+                        memory_mb = process_info.get("memory_mb", 0)
+                        cpu_percent = process_info.get("cpu_percent", 0)
+                        restart_count = process_info.get("restart_count", 0)
+
+                        print(f"  ⏱️  Uptime: {uptime_hours:.1f} hours")
+                        print(f"  💾 Memory: {memory_mb:.1f} MB")
+                        print(f"  ⚡ CPU: {cpu_percent:.1f}%")
+                        print(f"  🔄 Restarts: {restart_count}")
+
+                # Show health status
+                health = self.orchestrator.config_manager.validate_client_health(client_id)
+                health_icon = "✅" if health['config_health'] == 'healthy' else "⚠️"
+                print(f"  🏥 Config Health: {health['config_health']} {health_icon}")
+
+                if health['issues']:
+                    print(f"  ⚠️ Issues: {', '.join(health['issues'][:2])}")
+                    if len(health['issues']) > 2:
+                        print(f"    ... and {len(health['issues']) - 2} more")
+
                 print()
         else:
             print("❌ No clients configured")
@@ -183,12 +193,11 @@ class PlatformStats:
         print("📋 Configured Clients")
         print("=" * 30)
 
-        # MIGRATION: Initialize orchestrator to get client list
         if not self.orchestrator.initialize():
             print("❌ Platform initialization failed")
             return
 
-        # MIGRATION: Get clients from config manager (ClientConfig objects)
+        # FIXED: Get clients from config manager (ClientConfig objects)
         clients = self.orchestrator.config_manager.client_configs
         running_clients = self.orchestrator.process_manager.get_running_client_ids()
 
@@ -198,7 +207,6 @@ class PlatformStats:
 
         for client_id, config in clients.items():
             status = "🟢 Running" if client_id in running_clients else "🔴 Stopped"
-            # FIXED: Use attribute access for ClientConfig dataclass
             enabled = "✅ Enabled" if config.enabled else "❌ Disabled"
             plan = getattr(config, 'plan', 'unknown')
 
@@ -212,7 +220,6 @@ class ClientOnboardingTool:
 
     def __init__(self):
         self.client_manager = ClientManager()
-        # MIGRATION: Use PlatformOrchestrator for client operations
         self.orchestrator = PlatformOrchestrator()
 
     def interactive_onboarding(self) -> bool:
@@ -221,7 +228,6 @@ class ClientOnboardingTool:
         print("=" * 55)
 
         try:
-            # MIGRATION: Initialize orchestrator
             if not self.orchestrator.initialize():
                 print("❌ Platform initialization failed")
                 return False
@@ -237,7 +243,6 @@ class ClientOnboardingTool:
             # Additional configuration
             print(f"\n📋 Creating client '{client_id}' with plan '{plan}'...")
 
-            # MIGRATION: Use client_manager to create client
             success = self.client_manager.create_client(
                 client_id=client_id,
                 display_name=display_name,
@@ -261,17 +266,17 @@ class ClientOnboardingTool:
     def _get_client_id(self) -> str:
         """Get and validate client ID."""
         while True:
-            client_id = input("Enter client ID (alphanumeric, underscore, hyphen): ").strip().lower()
+            client_id = input("Client ID (alphanumeric, underscore, hyphen): ").strip().lower()
 
             if not client_id:
-                print("❌ Client ID cannot be empty")
+                print("❌ Client ID is required")
                 continue
 
             if not client_id.replace('_', '').replace('-', '').isalnum():
-                print("❌ Client ID must be alphanumeric with underscore or hyphen only")
+                print("❌ Client ID can only contain letters, numbers, underscore, and hyphen")
                 continue
 
-            # MIGRATION: Check existing clients using orchestrator
+            # Check if already exists
             if self.orchestrator.config_manager.client_configs.get(client_id):
                 print(f"❌ Client '{client_id}' already exists")
                 continue
@@ -279,15 +284,15 @@ class ClientOnboardingTool:
             return client_id
 
     def _get_display_name(self, client_id: str) -> str:
-        """Get display name for client."""
+        """Get display name for the client."""
         default_name = client_id.replace('_', ' ').replace('-', ' ').title()
-        display_name = input(f"Display name [{default_name}]: ").strip()
-        return display_name if display_name else default_name
+        display_name = input(f"Display Name [{default_name}]: ").strip()
+        return display_name or default_name
 
     def _get_plan(self) -> str:
-        """Get service plan for client."""
-        print("\n📊 Available Plans:")
-        print("  1. Basic ($200/month) - Core features, moderation, basic support")
+        """Get business plan selection."""
+        print("\nBusiness Plan Selection:")
+        print("  1. Basic ($200/month) - Standard features, basic support")
         print("  2. Premium ($350/month) - + Analytics, tickets, advanced features")
         print("  3. Enterprise ($500/month) - + API access, priority support, unlimited")
 
@@ -355,10 +360,8 @@ def main():
         sys.exit(0 if success else 1)
 
     elif args.command == 'start':
-        # MIGRATION: Use PlatformOrchestrator instead of PlatformLauncher
         orchestrator = PlatformOrchestrator()
         if orchestrator.initialize():
-            # Use the platform_main.py functionality instead of direct launcher
             print("🚀 Use 'python platform_main.py' to start the platform")
             print("📊 Use 'python platform_main.py --status' for status")
             print("🎮 Use 'python platform_main.py --interactive' for management")

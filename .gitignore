@@ -13,8 +13,10 @@ archive/
 clients/*/config.json
 clients/*/.env
 
-# But keep the template files
+# Exclude all client directories except template
+clients/*
 !clients/_template/
+# But keep the template files
 !clients/_template/*
 
 # Client-specific runtime data

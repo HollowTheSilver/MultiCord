@@ -1,10 +1,18 @@
 #!/usr/bin/env python3
 """
-Platform Main Entry Point - Clean Architecture
-==============================================
+Platform Main Entry Point
+=======================================================================
 
 Multi-client Discord bot platform with clean, professional architecture.
 Uses dependency injection and separation of concerns.
+
+FIXES APPLIED:
+- Updated data structure access to match ServiceManager.get_platform_status()
+- Fixed client count fields: platform_stats['total_clients'] -> clients_stats['total']
+- Removed non-existent health fields (healthy_clients, clients_with_issues)
+- Updated auto-fixes field: health_stats['total_auto_fixes'] -> platform_stats['auto_fixes_applied']
+- Fixed client details to get running info directly from ProcessManager
+- Added proper health status display for each client
 
 Usage:
     python platform_main.py                    # Start all enabled clients
@@ -13,7 +21,7 @@ Usage:
     python platform_main.py --interactive     # Interactive management mode
 
 Author: HollowTheSilver
-Version: 3.0.0 - Clean Architecture
+Version: 3.0.1
 """
 
 import asyncio
@@ -41,59 +49,68 @@ class PlatformMain:
 
     async def start_platform(self, client_filter: Optional[str] = None) -> None:
         """Start the platform with optional client filtering."""
-        print("🚀 Starting Multi-Client Discord Bot Platform")
-        print("=" * 50)
-
         if not self.orchestrator.initialize():
             print("❌ Platform initialization failed")
             return
 
-        try:
-            if client_filter:
-                # Start specific client only
-                if client_filter in self.orchestrator.config_manager.client_configs:
-                    print(f"🤖 Starting client: {client_filter}")
-                    success = self.orchestrator.start_client(client_filter)
-                    if success:
-                        print(f"✅ Client {client_filter} started successfully")
-                        # Keep running
-                        self.running = True
-                        self._setup_signal_handlers()
-                        while self.running:
-                            await asyncio.sleep(1)
-                    else:
-                        print(f"❌ Failed to start client {client_filter}")
-                        return
-                else:
-                    print(f"❌ Client '{client_filter}' not found")
-                    print("Available clients:")
-                    for client_id in self.orchestrator.config_manager.client_configs:
-                        print(f"  - {client_id}")
-                    return
+        if client_filter:
+            print(f"🚀 Starting single client: {client_filter}")
+            success = self.orchestrator.start_client(client_filter)
+            if success:
+                print(f"✅ Client {client_filter} started successfully")
+                # Run client in foreground
+                await self._monitor_single_client(client_filter)
             else:
-                # Start all enabled clients
-                started_clients = await self.orchestrator.start_all_clients()
-                if started_clients:
-                    print(f"✅ Started {len(started_clients)} clients: {', '.join(started_clients)}")
-                    # Keep running
-                    self.running = True
-                    self._setup_signal_handlers()
+                print(f"❌ Failed to start client {client_filter}")
+        else:
+            print("🚀 Starting Multi-Client Platform")
+            started_clients = await self.orchestrator.start_all_clients()
+            if started_clients:
+                print(f"✅ Started {len(started_clients)} clients: {', '.join(started_clients)}")
+                await self._monitor_platform()
+            else:
+                print("❌ No clients were started")
 
-                    # Start health monitoring
-                    await self.orchestrator.run_health_monitoring()
-                else:
-                    print("❌ No clients were started")
+    async def _monitor_single_client(self, client_id: str) -> None:
+        """Monitor a single client until stopped."""
+        self.running = True
+        self._setup_signal_handlers()
 
-        except KeyboardInterrupt:
-            print("\n🛑 Shutdown requested by user")
-        except Exception as e:
-            print(f"❌ Platform error: {e}")
-        finally:
-            await self.orchestrator.shutdown()
-            print("🔌 Platform shutdown complete")
+        print(f"📊 Monitoring {client_id} (Ctrl+C to stop)")
+
+        while self.running:
+            if client_id not in self.orchestrator.process_manager.get_running_client_ids():
+                print(f"❌ Client {client_id} has stopped")
+                break
+            await asyncio.sleep(5)
+
+        print(f"👋 Stopped monitoring {client_id}")
+
+    async def _monitor_platform(self) -> None:
+        """Monitor the entire platform."""
+        self.running = True
+        self._setup_signal_handlers()
+
+        print("📊 Platform monitoring active (Ctrl+C to stop)")
+
+        while self.running:
+            await asyncio.sleep(30)  # Check every 30 seconds
+            # Auto-healing runs in ServiceManager
+
+        print("👋 Platform monitoring stopped")
+
+    def _setup_signal_handlers(self) -> None:
+        """Setup graceful shutdown signal handlers."""
+
+        def signal_handler(signum, frame):
+            print(f"\n🛑 Received signal {signum}, shutting down gracefully...")
+            self.running = False
+
+        signal.signal(signal.SIGINT, signal_handler)
+        signal.signal(signal.SIGTERM, signal_handler)
 
     async def show_status(self) -> None:
-        """Show platform status."""
+        """Display comprehensive platform status."""
         if not self.orchestrator.initialize():
             print("❌ Platform initialization failed")
             return
@@ -101,66 +118,74 @@ class PlatformMain:
         print("📊 Multi-Client Platform Status")
         print("=" * 50)
 
-        # Get status from orchestrator
+        # FIXED: Get status from orchestrator
         status = self.orchestrator.get_status()
 
         if 'error' in status:
             print(f"❌ {status['error']}")
             return
 
+        # FIXED: Access nested structure correctly
         platform_stats = status["platform"]
+        clients_stats = status["clients"]  # FIXED: Use clients section
         health_stats = status["health"]
 
-        # Get clients data from the status response
-        clients_stats = status.get('clients', {})
-
-        # Platform overview
+        # FIXED: Use correct field names from actual data structure
         print(f"🕐 Platform Uptime: {platform_stats['uptime_hours']:.1f} hours")
         print(f"🔄 Total Restarts: {platform_stats['total_restarts']}")
-        print(f"📊 Total Clients: {clients_stats.get('total', 0)}")
-        print(f"🟢 Running Clients: {clients_stats.get('running', 0)}")
-        print(f"⏹️ Stopped Clients: {clients_stats.get('stopped', 0)}")
-        print(f"✅ FLAGS System: {clients_stats.get('flags_system', 0)}")
-        print(f"🔧 Auto-fixes Applied: {platform_stats.get('auto_fixes_applied', 0)}")
+        print(f"📊 Total Clients: {clients_stats['total']}")  # FIXED: clients_stats['total']
+        print(f"🟢 Running Clients: {clients_stats['running']}")  # FIXED: clients_stats['running']
+        print(f"✅ Enabled Clients: {clients_stats['enabled']}")  # FIXED: Use available field
+        print(f"⏹️ Stopped Clients: {clients_stats['stopped']}")  # FIXED: Use available field
+        print(f"🔧 Auto-fixes Applied: {platform_stats.get('auto_fixes_applied', 0)}")  # FIXED: platform_stats
+        print(f"🤖 Auto-healing: {'Enabled' if health_stats['auto_healing_enabled'] else 'Disabled'}")
         print()
 
-        # Client details
-        if status["clients"]:
+        # FIXED: Get detailed client information directly from managers
+        if self.orchestrator.config_manager.client_configs:
             print("Detailed Client Status:")
             print("-" * 50)
 
-            for client_id, client_stats in status["clients"].items():
-                is_running = client_stats.get("running", False)
+            running_client_ids = self.orchestrator.process_manager.get_running_client_ids()
+
+            for client_id, config in self.orchestrator.config_manager.client_configs.items():
+                is_running = client_id in running_client_ids
 
                 if is_running:
                     status_icon = "🟢"
-                    pid = client_stats.get('pid', 'unknown')
-                    uptime = client_stats.get('uptime_hours', 0)
-                    memory = client_stats.get('memory_mb', 0)
-                    cpu = client_stats.get('cpu_percent', 0)
-                    source = client_stats.get('source', 'unknown')
+                    process_info = self.orchestrator.process_manager.get_process_status(client_id)
 
-                    print(f"{status_icon} {client_id}: RUNNING (PID: {pid}) • Uptime: {uptime:.1f}h • Source: {source}")
-                    print(
-                        f"   💾 Memory: {memory:.1f} MB • 🔄 CPU: {cpu:.1f}% • 🔄 Restarts: {client_stats.get('restart_count', 0)}")
+                    if process_info:
+                        pid = process_info.get('pid', 'unknown')
+                        uptime = process_info.get('uptime_hours', 0)
+                        memory = process_info.get('memory_mb', 0)
+                        cpu = process_info.get('cpu_percent', 0)
+                        source = process_info.get('source', 'unknown')
+                        restart_count = process_info.get('restart_count', 0)
+
+                        print(
+                            f"{status_icon} {client_id}: RUNNING (PID: {pid}) • Uptime: {uptime:.1f}h • Source: {source}")
+                        print(f"   💾 Memory: {memory:.1f} MB • ⚡ CPU: {cpu:.1f}% • 🔄 Restarts: {restart_count}")
+                    else:
+                        print(f"{status_icon} {client_id}: RUNNING (process info unavailable)")
                 else:
                     status_icon = "🔴"
-                    status_reason = client_stats.get('status', 'stopped')
-                    print(f"{status_icon} {client_id}: STOPPED ({status_reason})")
+                    status_reason = "Not running"
+                    enabled_status = "Enabled" if config.enabled else "Disabled"
+                    print(f"{status_icon} {client_id}: STOPPED ({status_reason}) • {enabled_status}")
 
-                # Health indicator
-                config_health = client_stats.get("health_status", {}).get("config_health", "unknown")
-                health_icon = "✅" if config_health == "healthy" else "⚠️"
-                print(f"   🏥 Config Health: {config_health} {health_icon}")
+                # FIXED: Show health indicator
+                health = self.orchestrator.config_manager.validate_client_health(client_id)
+                health_icon = "✅" if health['config_health'] == 'healthy' else "⚠️"
+                print(f"   🏥 Config Health: {health['config_health']} {health_icon}")
 
                 # Show issues if any
-                issues = client_stats.get("config_issues", [])
-                if issues:
-                    print(f"   ⚠️ Issues ({len(issues)}):")
-                    for issue in issues[:3]:
+                if health['issues']:
+                    print(f"   ⚠️ Issues ({len(health['issues'])}):")
+                    for issue in health['issues'][:3]:
                         print(f"      • {issue}")
-                    if len(issues) > 3:
-                        print(f"      • ... and {len(issues) - 3} more")
+                    if len(health['issues']) > 3:
+                        print(f"      • ... and {len(health['issues']) - 3} more")
 
                 print()
 
@@ -193,7 +218,7 @@ class PlatformMain:
             print("  7. Create new client")
             print("  8. Delete client")
             print("  9. Run diagnostics")
-            print("  0. Exit management console")  # ← Clarified text
+            print("  0. Exit management console")
 
             try:
                 choice = input("\nSelect option (0-9): ").strip()
@@ -348,24 +373,37 @@ class PlatformMain:
             print("❌ Client already exists.")
             return
 
-        display_name = input("Display Name (optional): ").strip()
+        display_name = input(f"Display Name [{client_id.title()}]: ").strip()
         if not display_name:
-            display_name = client_id.replace('_', ' ').title()
+            display_name = client_id.title()
 
-        plan = input("Plan (basic/premium/enterprise) [basic]: ").strip().lower()
-        if plan not in ['basic', 'premium', 'enterprise']:
-            plan = 'basic'
+        print("\nBusiness Plan:")
+        print("  1. Basic ($200/month)")
+        print("  2. Premium ($350/month)")
+        print("  3. Enterprise ($500/month)")
 
-        success = self.orchestrator.create_client(
+        plan_choice = input("Select plan (1-3) [1]: ").strip() or "1"
+        plan_map = {"1": "basic", "2": "premium", "3": "enterprise"}
+        plan = plan_map.get(plan_choice, "basic")
+
+        print(f"\n📋 Creating client '{client_id}' with plan '{plan}'...")
+
+        # Use ClientManager to create the client
+        from bot_platform.client_manager import ClientManager
+        client_manager = ClientManager()
+
+        success = client_manager.create_client(
             client_id=client_id,
             display_name=display_name,
             plan=plan
         )
 
         if success:
-            print(f"✅ Created client: {client_id}")
+            print(f"✅ Client '{client_id}' created successfully!")
+            print(f"📁 Configuration directory: clients/{client_id}/")
+            print(f"⚙️  Edit clients/{client_id}/.env to add your Discord token")
         else:
-            print(f"❌ Failed to create client: {client_id}")
+            print(f"❌ Failed to create client '{client_id}'")
 
     async def _delete_client_interactive(self) -> None:
         """Delete a client interactively."""
@@ -374,29 +412,34 @@ class PlatformMain:
             print("❌ No clients configured.")
             return
 
-        print("⚠️ Delete Client (DESTRUCTIVE OPERATION)")
         print("\nConfigured Clients:")
         for i, client_id in enumerate(clients, 1):
             print(f"  {i}. {client_id}")
 
         try:
-            choice = int(input(f"Select client to DELETE (1-{len(clients)}): "))
+            choice = int(input(f"Select client to delete (1-{len(clients)}): "))
             if 1 <= choice <= len(clients):
                 client_id = clients[choice - 1]
 
-                confirm = input(f"⚠️ Are you sure you want to DELETE '{client_id}'? (yes/no): ").strip().lower()
-                if confirm == 'yes':
-                    backup = input("Create backup before deletion? (Y/n): ").strip().lower()
-                    create_backup = backup != 'n'
+                # Confirm deletion
+                confirm = input(f"⚠️ Delete client '{client_id}' permanently? (yes/no): ").strip().lower()
+                if confirm == "yes":
+                    # Stop client if running
+                    if client_id in self.orchestrator.process_manager.get_running_client_ids():
+                        print(f"🛑 Stopping {client_id} first...")
+                        self.orchestrator.stop_client(client_id)
 
-                    print(f"🗑️ Deleting {client_id}...")
-                    success = self.orchestrator.delete_client(client_id, backup=create_backup)
+                    # Use ClientManager to delete
+                    from bot_platform.client_manager import ClientManager
+                    client_manager = ClientManager()
+
+                    success = client_manager.delete_client(client_id)
                     if success:
-                        print(f"✅ Deleted client: {client_id}")
+                        print(f"✅ Client '{client_id}' deleted successfully")
                     else:
-                        print(f"❌ Failed to delete client: {client_id}")
+                        print(f"❌ Failed to delete client '{client_id}'")
                 else:
-                    print("❌ Deletion cancelled.")
+                    print("❌ Deletion cancelled")
             else:
                 print("❌ Invalid selection.")
         except ValueError:
@@ -404,47 +447,58 @@ class PlatformMain:
 
     async def _run_diagnostics(self) -> None:
         """Run platform diagnostics."""
-        print("🔍 Running Platform Diagnostics...")
+        print("🔍 Running platform diagnostics...")
 
-        # Auto-heal platform
-        fixes = self.orchestrator.service_manager.auto_heal_platform()
-        if fixes > 0:
-            print(f"🔧 Applied {fixes} auto-fixes")
+        # Basic health checks
+        status = self.orchestrator.get_status()
+
+        print("\n📊 Diagnostic Results:")
+        print(f"✅ Platform initialized: {self.orchestrator.initialized}")
+        print(f"✅ Config manager loaded: {len(self.orchestrator.config_manager.client_configs)} clients")
+        print(f"✅ Process manager active: {len(self.orchestrator.process_manager.get_running_client_ids())} running")
+
+        # Check for issues
+        issues = []
+        for client_id, config in self.orchestrator.config_manager.client_configs.items():
+            health = self.orchestrator.config_manager.validate_client_health(client_id)
+            if health['config_health'] != 'healthy':
+                issues.extend([f"{client_id}: {issue}" for issue in health['issues']])
+
+        if issues:
+            print(f"\n⚠️ Found {len(issues)} configuration issues:")
+            for issue in issues[:5]:
+                print(f"  • {issue}")
+            if len(issues) > 5:
+                print(f"  • ... and {len(issues) - 5} more")
         else:
-            print("✅ No issues found")
-
-    def _setup_signal_handlers(self) -> None:
-        """Setup signal handlers for graceful shutdown."""
-
-        def signal_handler(sig, frame):
-            print(f"\n🛑 Received signal {sig}, shutting down...")
-            self.running = False
-
-        signal.signal(signal.SIGINT, signal_handler)
-        signal.signal(signal.SIGTERM, signal_handler)
+            print("\n✅ No configuration issues found")
 
 
 async def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(description="Multi-Client Discord Bot Platform")
-    parser.add_argument("--client", help="Start specific client only")
-    parser.add_argument("--status", action="store_true", help="Show platform status")
-    parser.add_argument("--interactive", action="store_true", help="Interactive management mode")
-    parser.add_argument("--config", default="platform_config.json", help="Platform config file")
+    parser.add_argument('--client', help='Start specific client only')
+    parser.add_argument('--status', action='store_true', help='Show platform status and exit')
+    parser.add_argument('--interactive', action='store_true', help='Interactive management mode')
 
     args = parser.parse_args()
 
-    # Create orchestrator with clean architecture
-    orchestrator = PlatformOrchestrator(args.config)
+    # Initialize platform
+    orchestrator = PlatformOrchestrator()
     platform = PlatformMain(orchestrator)
 
-    # Handle command-line arguments
-    if args.status:
-        await platform.show_status()
-    elif args.interactive:
-        await platform.interactive_mode()
-    else:
-        await platform.start_platform(args.client)
+    try:
+        if args.status:
+            await platform.show_status()
+        elif args.interactive:
+            await platform.interactive_mode()
+        else:
+            await platform.start_platform(args.client)
+    except KeyboardInterrupt:
+        print("\n👋 Shutdown complete")
+    except Exception as e:
+        print(f"❌ Platform error: {e}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
