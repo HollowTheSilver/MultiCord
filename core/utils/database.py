@@ -3,6 +3,7 @@ Database Management Module
 ==================================
 
 DatabaseManager with multi-backend support.
+CRITICAL FIX: Added missing cleanup_old_data method that core.application expects.
 """
 
 import asyncio
@@ -10,7 +11,7 @@ import aiosqlite
 import json
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple, Union
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from contextlib import asynccontextmanager
 from abc import ABC, abstractmethod
 
@@ -48,6 +49,11 @@ class BackendHandler(ABC):
     @abstractmethod
     async def close(self) -> None:
         """Close connections."""
+        pass
+
+    @abstractmethod
+    async def cleanup_old_data(self, days_old: int = 30) -> int:
+        """Clean up old data entries."""
         pass
 
 
@@ -309,6 +315,36 @@ class SQLiteHandler(BackendHandler):
         """Close database connections."""
         # SQLite connections are managed per-operation
         pass
+
+    async def cleanup_old_data(self, days_old: int = 30) -> int:
+        """Clean up old database entries."""
+        try:
+            cutoff_date = datetime.now(timezone.utc) - timedelta(days=days_old)
+            cutoff_iso = cutoff_date.isoformat()
+
+            # Count entries to be deleted
+            count_result = await self.fetch_one(
+                "SELECT COUNT(*) as count FROM audit_log WHERE timestamp < ?",
+                (cutoff_iso,)
+            )
+            count = count_result["count"] if count_result else 0
+
+            if count > 0:
+                # Delete old audit log entries
+                await self.execute(
+                    "DELETE FROM audit_log WHERE timestamp < ?",
+                    (cutoff_iso,)
+                )
+
+                if self.logger:
+                    self.logger.info(f"Cleaned up {count} old audit log entries (older than {days_old} days)")
+
+            return count
+
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"SQLite cleanup failed: {e}")
+            return 0
 
 
 class FirestoreHandler(BackendHandler):
@@ -600,6 +636,35 @@ class FirestoreHandler(BackendHandler):
         # Firestore client handles connection management automatically
         self.db = None
 
+    async def cleanup_old_data(self, days_old: int = 30) -> int:
+        """Clean up old Firestore data entries."""
+        if not self.db or not self.firestore:
+            return 0
+
+        try:
+            cutoff_date = datetime.now(timezone.utc) - timedelta(days=days_old)
+
+            # Clean up audit log collection
+            audit_collection = f"{self.collection_prefix}_audit_log"
+            query = self.db.collection(audit_collection).where('timestamp', '<', cutoff_date)
+
+            count = 0
+            docs = query.stream()
+
+            for doc in docs:
+                doc.reference.delete()
+                count += 1
+
+            if self.logger and count > 0:
+                self.logger.info(f"Cleaned up {count} old Firestore audit entries (older than {days_old} days)")
+
+            return count
+
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"Firestore cleanup failed: {e}")
+            return 0
+
 
 class PostgreSQLHandler(BackendHandler):
     """PostgreSQL backend handler for enterprise deployments."""
@@ -745,6 +810,34 @@ class PostgreSQLHandler(BackendHandler):
             await self.connection.close()
             self.connection = None
 
+    async def cleanup_old_data(self, days_old: int = 30) -> int:
+        """Clean up old PostgreSQL data entries."""
+        if not self.connection:
+            return 0
+
+        try:
+            cutoff_date = datetime.now(timezone.utc) - timedelta(days=days_old)
+
+            # Count entries to be deleted
+            count_query = "SELECT COUNT(*) as count FROM audit_log WHERE timestamp < $1"
+            result = await self.fetch_one(count_query, (cutoff_date,))
+            count = result["count"] if result else 0
+
+            if count > 0:
+                # Delete old audit log entries
+                delete_query = "DELETE FROM audit_log WHERE timestamp < $1"
+                await self.execute(delete_query, (cutoff_date,))
+
+                if self.logger:
+                    self.logger.info(f"Cleaned up {count} old PostgreSQL audit entries (older than {days_old} days)")
+
+            return count
+
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"PostgreSQL cleanup failed: {e}")
+            return 0
+
 
 class DatabaseManager:
     """
@@ -866,6 +959,10 @@ class DatabaseManager:
     async def close(self) -> None:
         """Close database connections."""
         await self.backend.close()
+
+    async def cleanup_old_data(self, days_old: int = 30) -> int:
+        """Clean up old data entries."""
+        return await self.backend.cleanup_old_data(days_old)
 
     # Additional properties for backward compatibility
     @property

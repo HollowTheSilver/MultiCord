@@ -259,7 +259,7 @@ class PlatformMain:
         print("📋 Management console closed. Use 'python platform_main.py --status' to check client status.")
 
     async def _start_client_interactive(self) -> None:
-        """Start a client interactively."""
+        """Start a client interactively and exit console (terminal becomes occupied)."""
         clients = list(self.orchestrator.config_manager.client_configs.keys())
         if not clients:
             print("❌ No clients configured.")
@@ -280,6 +280,14 @@ class PlatformMain:
                 success = self.orchestrator.start_client(client_id)
                 if success:
                     print(f"✅ {client_id} started successfully")
+                    print("\n" + "─" * 60)
+                    print("📋 Interactive console closing - terminal now monitoring client")
+                    print("💡 Open a new terminal for additional management:")
+                    print("   python platform_main.py --interactive")
+                    print("   python platform_main.py --status")
+                    print("─" * 60)
+                    # Exit interactive mode - terminal is now occupied by client process
+                    self.running = False
                 else:
                     print(f"❌ Failed to start {client_id}")
             else:
@@ -314,7 +322,7 @@ class PlatformMain:
             print("❌ Please enter a valid number.")
 
     async def _restart_client_interactive(self) -> None:
-        """Restart a client interactively."""
+        """Restart a client interactively and exit console (terminal becomes occupied)."""
         clients = list(self.orchestrator.config_manager.client_configs.keys())
         if not clients:
             print("❌ No clients configured.")
@@ -335,6 +343,14 @@ class PlatformMain:
                 success = self.orchestrator.restart_client(client_id)
                 if success:
                     print(f"✅ {client_id} restarted successfully")
+                    print("\n" + "─" * 60)
+                    print("📋 Interactive console closing - terminal now monitoring client")
+                    print("💡 Open a new terminal for additional management:")
+                    print("   python platform_main.py --interactive")
+                    print("   python platform_main.py --status")
+                    print("─" * 60)
+                    # Exit interactive mode - terminal is now occupied by client process
+                    self.running = False
                 else:
                     print(f"❌ Failed to restart {client_id}")
             else:
@@ -343,11 +359,20 @@ class PlatformMain:
             print("❌ Please enter a valid number.")
 
     async def _start_all_interactive(self) -> None:
-        """Start all enabled clients."""
+        """Start all enabled clients and exit console (terminal becomes occupied)."""
         print("🚀 Starting all enabled clients...")
         started = await self.orchestrator.start_all_clients()
+
         if started:
             print(f"✅ Started {len(started)} clients: {', '.join(started)}")
+            print("\n" + "─" * 60)
+            print("📋 Interactive console closing - terminal now monitoring clients")
+            print("💡 Open a new terminal for additional management:")
+            print("   python platform_main.py --interactive")
+            print("   python platform_main.py --status")
+            print("─" * 60)
+            # Exit interactive mode - terminal is now occupied by client processes
+            self.running = False
         else:
             print("❌ No clients were started")
 
