@@ -1,0 +1,59 @@
+"""Client FLAGS Configuration for {DISPLAY_NAME}"""
+
+# FLAGS system - Template: Moderation Bot
+# Generated from template metadata - Version: 1.0.0
+FLAGS = {
+    # ================== Core Platform FLAGS ================== #
+    "base_commands": True,
+    "permission_system": True,
+    "error_handling": True,
+    "logging_enabled": True,
+
+    # ================== Template-Specific FLAGS ================== #
+    "auto_moderation": true,
+    "warning_system": true,
+    "appeal_system": true,
+    "log_channel_required": true,
+
+    # ================== Database Configuration ================== #
+    "database": {
+        "backend": "{DATABASE_BACKEND}",
+        "config": {}
+    },
+
+    # ================== Limits and Quotas ================== #
+    "limits": {
+        "max_warnings": 3,
+        "timeout_duration": 600,
+        "max_automod_rules": 10,
+    },
+
+    # ================== User-Customizable FLAGS ================== #
+    "custom_embeds": True,
+    "webhook_notifications": False,
+    "debug_mode": False,
+    "cache_enabled": True,
+    "auto_cleanup": True,
+
+    # ================== Plan-Based Features (Optional) ================== #
+    "plan_features": {
+        "plan_name": "{PLAN}",
+        "monthly_fee": "{MONTHLY_FEE}",
+        "support_level": "community",
+        "priority_support": {PRIORITY_SUPPORT_ENABLED},
+        "api_access": {API_ACCESS_ENABLED},
+    },
+
+    # ================== Template Metadata ================== #
+    "template_info": {
+        "name": "Moderation Bot",
+        "version": "1.0.0",
+        "category": "builtin",
+        "author": "Discord Cloud Platform",
+        "description": "Complete moderation system with auto-mod, warnings, and appeals",
+        "database_recommended": "{DATABASE_BACKEND}",
+    },
+
+    # ================== Custom User FLAGS ================== #
+    "custom": {}
+}

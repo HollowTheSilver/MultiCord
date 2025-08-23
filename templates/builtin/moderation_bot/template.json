@@ -1,0 +1,30 @@
+{
+  "version": "1.0.0",
+  "author": "Discord Cloud Platform",
+  "category": "builtin",
+  "difficulty": "intermediate",
+  "customizable_flags": [
+    "auto_moderation",
+    "max_warnings",
+    "timeout_duration",
+    "log_channel",
+    "custom_commands",
+    "webhook_notifications"
+  ],
+  "name": "Moderation Bot",
+  "description": "Complete moderation system with auto-mod, warnings, and appeals",
+  "recommended_database": "firestore",
+  "default_flags": {
+    "base_commands": true,
+    "permission_system": true,
+    "auto_moderation": true,
+    "warning_system": true,
+    "appeal_system": true,
+    "log_channel_required": true,
+    "limits": {
+      "max_warnings": 3,
+      "timeout_duration": 600,
+      "max_automod_rules": 10
+    }
+  }
+}

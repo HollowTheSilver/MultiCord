@@ -1,0 +1,30 @@
+{
+  "version": "1.0.0",
+  "author": "Discord Cloud Platform",
+  "category": "builtin",
+  "difficulty": "advanced",
+  "customizable_flags": [
+    "auto_moderation",
+    "max_warnings",
+    "timeout_duration",
+    "log_channel",
+    "custom_commands",
+    "webhook_notifications"
+  ],
+  "name": "Economy Bot",
+  "description": "Economy system with currency, leveling, shop, and leaderboards",
+  "recommended_database": "postgresql",
+  "default_flags": {
+    "base_commands": true,
+    "economy_system": true,
+    "leveling_system": true,
+    "shop_enabled": true,
+    "leaderboards": true,
+    "daily_rewards": true,
+    "limits": {
+      "daily_reward": 100,
+      "max_balance": 1000000,
+      "shop_items": 50
+    }
+  }
+}

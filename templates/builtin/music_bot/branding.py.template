@@ -1,0 +1,44 @@
+"""Branding Configuration for {DISPLAY_NAME}"""
+
+# Template: Music Bot
+# Auto-generated branding based on template theme
+
+BRANDING = {
+    # ================== Bot Identity ================== #
+    "bot_name": "{BOT_NAME}",
+    "bot_description": "Music streaming bot with playlists, queues, and lyrics",
+    "bot_version": "{BOT_VERSION}",
+
+    # ================== Visual Theme ================== #
+    "embed_colors": {
+        "default": 0x9b59b6,
+        "success": 0x1abc9c,
+        "error": 0xe74c3c,
+        "warning": 0xf39c12,
+        "info": 0x3498db
+    },
+
+    # ================== Status Messages ================== #
+    "status_messages": [
+        ("Music Bot", "playing"),
+        ("Discord Cloud Platform", "watching"),
+        ("{SERVER_COUNT} servers", "watching"),
+        ("{USER_COUNT} users", "watching")
+    ],
+
+    # ================== Templates & Footers ================== #
+    "footer_text": "Powered by Discord Cloud Platform",
+    "embed_thumbnail": None,
+    "embed_author": {
+        "name": "{BOT_NAME}",
+        "icon_url": None
+    },
+
+    # ================== Template-Specific Branding ================== #
+    "template_theme": {
+        "name": "music_bot",
+        "category": "builtin",
+        "primary_feature": "Music streaming bot with playlists, queues, and lyrics",
+        "color_scheme": "music_bot_theme"
+    }
+}

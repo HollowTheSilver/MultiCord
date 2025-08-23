@@ -1,0 +1,44 @@
+"""Branding Configuration for {DISPLAY_NAME}"""
+
+# Template: Economy Bot
+# Auto-generated branding based on template theme
+
+BRANDING = {
+    # ================== Bot Identity ================== #
+    "bot_name": "{BOT_NAME}",
+    "bot_description": "Economy system with currency, leveling, shop, and leaderboards",
+    "bot_version": "{BOT_VERSION}",
+
+    # ================== Visual Theme ================== #
+    "embed_colors": {
+        "default": 0xf1c40f,
+        "success": 0x2ecc71,
+        "error": 0xe67e22,
+        "warning": 0xf39c12,
+        "info": 0x3498db
+    },
+
+    # ================== Status Messages ================== #
+    "status_messages": [
+        ("Economy Bot", "playing"),
+        ("Discord Cloud Platform", "watching"),
+        ("{SERVER_COUNT} servers", "watching"),
+        ("{USER_COUNT} users", "watching")
+    ],
+
+    # ================== Templates & Footers ================== #
+    "footer_text": "Powered by Discord Cloud Platform",
+    "embed_thumbnail": None,
+    "embed_author": {
+        "name": "{BOT_NAME}",
+        "icon_url": None
+    },
+
+    # ================== Template-Specific Branding ================== #
+    "template_theme": {
+        "name": "economy_bot",
+        "category": "builtin",
+        "primary_feature": "Economy system with currency, leveling, shop, and leaderboards",
+        "color_scheme": "economy_bot_theme"
+    }
+}
