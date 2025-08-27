@@ -1,9 +1,9 @@
 """
-Process Manager - Unified Process Management
+Process Manager - Unified Process Management with Proper I/O Redirection
 ==========================================
 
-Single source of truth for all client process operations.
-Eliminates the competing discovery vs launch systems.
+Root cause fix for process logging issue: Redirect client process stdout/stderr
+to appropriate log files instead of inheriting parent terminal.
 """
 
 import sys
@@ -35,6 +35,7 @@ class ProcessInfo:
     subprocess_handle: Optional[subprocess.Popen] = None  # Only for launched processes
     restart_count: int = 0
     last_restart: Optional[datetime] = None
+    log_file_path: Optional[str] = None  # Track where logs are redirected
 
     @property
     def is_running(self) -> bool:
@@ -109,6 +110,10 @@ class ProcessManager:
         self._processes: Dict[str, ProcessInfo] = {}
         self._lock = threading.RLock()
 
+        # Ensure platform logs directory exists
+        platform_logs = Path("bot_platform/logs")
+        platform_logs.mkdir(parents=True, exist_ok=True)
+
         # Discover existing processes on startup
         self.discover_and_register_existing()
 
@@ -144,7 +149,8 @@ class ProcessManager:
                                 client_id=client_id,
                                 pid=proc.info['pid'],
                                 started_at=datetime.fromtimestamp(proc.info['create_time'], tz=timezone.utc),
-                                source=ProcessSource.DISCOVERED
+                                source=ProcessSource.DISCOVERED,
+                                log_file_path=f"clients/{client_id}/logs/client_output.log"
                             )
                             self._processes[client_id] = process_info
                             discovered_count += 1
@@ -162,7 +168,7 @@ class ProcessManager:
         return discovered_count
 
     def start_process(self, client_id: str, client_configs: Dict) -> bool:
-        """Start a new client process."""
+        """Start a new client process with proper I/O redirection."""
         if client_id not in client_configs:
             self.logger.error(f"Client {client_id} not found in configuration")
             return False
@@ -192,18 +198,56 @@ class ProcessManager:
                 f"--client-id={client_id}"
             ]
 
-            # Set up environment
+            # Set up environment with UTF-8 encoding
             import os
             env = os.environ.copy()
             if hasattr(config, 'custom_env'):
                 env.update(config.custom_env)
 
-            # Start process
-            process = subprocess.Popen(
-                cmd,
-                env=env,
-                cwd=Path.cwd()
-            )
+            # Force UTF-8 encoding for subprocess output
+            env['PYTHONIOENCODING'] = 'utf-8'
+            if os.name == 'nt':  # Windows
+                env['PYTHONLEGACYWINDOWSSTDIO'] = '1'
+
+            # Set up dedicated logging for client process
+            client_logs_dir = Path(f"clients/{client_id}/logs")
+            client_logs_dir.mkdir(parents=True, exist_ok=True)
+
+            # Create unique log file for this process instance
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            log_file_path = client_logs_dir / f"client_output_{timestamp}.log"
+
+            # Open log file with proper UTF-8 encoding and error handling
+            log_file = open(log_file_path, 'w', encoding='utf-8', errors='replace', buffering=1)
+
+            # Start process with proper encoding and output redirection
+            try:
+                process = subprocess.Popen(
+                    cmd,
+                    env=env,
+                    cwd=Path.cwd(),
+                    stdout=log_file,
+                    stderr=subprocess.STDOUT,
+                    stdin=subprocess.DEVNULL,
+                    text=True,  # Handle text encoding properly
+                    encoding='utf-8',  # Force UTF-8 encoding
+                    errors='replace',  # Replace problematic characters instead of failing
+                    bufsize=1  # Line buffered
+                )
+            except Exception as encoding_error:
+                # Fallback: try without explicit encoding if UTF-8 fails
+                log_file.close()
+                log_file = open(log_file_path, 'w', encoding='utf-8', errors='replace', buffering=1)
+
+                process = subprocess.Popen(
+                    cmd,
+                    env=env,
+                    cwd=Path.cwd(),
+                    stdout=log_file,
+                    stderr=subprocess.STDOUT,
+                    stdin=subprocess.DEVNULL,
+                    bufsize=1
+                )
 
             # Register process
             with self._lock:
@@ -212,11 +256,16 @@ class ProcessManager:
                     pid=process.pid,
                     started_at=datetime.now(timezone.utc),
                     source=ProcessSource.LAUNCHED,
-                    subprocess_handle=process
+                    subprocess_handle=process,
+                    log_file_path=str(log_file_path)
                 )
                 self._processes[client_id] = process_info
 
-            self.logger.info(f"🚀 Started client {client_id} (PID: {process.pid})")
+            self.logger.info(f"🚀 Started client {client_id} (PID: {process.pid}, Logs: {log_file_path})")
+
+            print(f"✅ Client {client_id} started with dedicated logging")
+            print(f"📁 View real-time logs: tail -f {log_file_path}")
+
             return True
 
         except Exception as e:
@@ -242,6 +291,13 @@ class ProcessManager:
                         self.logger.warning(f"⚠️ Force stopped client {client_id}")
                 else:
                     self.logger.info(f"Client {client_id} was already stopped")
+
+                # Close log file if we have the subprocess handle
+                if process_info.subprocess_handle and process_info.subprocess_handle.stdout:
+                    try:
+                        process_info.subprocess_handle.stdout.close()
+                    except:
+                        pass
 
                 # Remove from registry
                 del self._processes[client_id]
@@ -276,7 +332,7 @@ class ProcessManager:
             process_info = self._processes[client_id]
             uptime = (datetime.now(timezone.utc) - process_info.started_at).total_seconds() / 3600
 
-            return {
+            status = {
                 "running": process_info.is_running,
                 "pid": process_info.pid,
                 "source": process_info.source.value,
@@ -285,8 +341,11 @@ class ProcessManager:
                 "cpu_percent": round(process_info.cpu_percent, 1),
                 "restart_count": process_info.restart_count,
                 "last_restart": process_info.last_restart.isoformat() if process_info.last_restart else None,
-                "status": "running" if process_info.is_running else "stopped"
+                "status": "running" if process_info.is_running else "stopped",
+                "log_file": process_info.log_file_path
             }
+
+            return status
 
     def get_all_processes(self) -> Dict[str, Dict]:
         """Get status of all processes."""
@@ -298,17 +357,29 @@ class ProcessManager:
 
     def cleanup_dead_processes(self) -> List[str]:
         """Remove dead processes from registry and return their IDs."""
-        dead_processes = []
+        cleaned_up = []
 
         with self._lock:
-            for client_id in list(self._processes.keys()):
-                process_info = self._processes[client_id]
+            dead_processes = []
+
+            for client_id, process_info in self._processes.items():
                 if not process_info.is_running:
                     dead_processes.append(client_id)
-                    del self._processes[client_id]
-                    self.logger.info(f"🧹 Cleaned up dead process: {client_id}")
 
-        return dead_processes
+            for client_id in dead_processes:
+                # Close any open file handles before removing
+                process_info = self._processes[client_id]
+                if process_info.subprocess_handle and process_info.subprocess_handle.stdout:
+                    try:
+                        process_info.subprocess_handle.stdout.close()
+                    except:
+                        pass
+
+                del self._processes[client_id]
+                cleaned_up.append(client_id)
+                self.logger.info(f"🧹 Cleaned up dead process: {client_id}")
+
+        return cleaned_up
 
     def get_running_client_ids(self) -> Set[str]:
         """Get set of currently running client IDs."""
@@ -318,20 +389,9 @@ class ProcessManager:
                 if process_info.is_running
             }
 
-    def force_kill_all(self) -> List[str]:
-        """Emergency function to kill all client processes."""
-        killed_processes = []
-
+    def get_client_log_path(self, client_id: str) -> Optional[str]:
+        """Get the current log file path for a client."""
         with self._lock:
-            for client_id in list(self._processes.keys()):
-                try:
-                    process_info = self._processes[client_id]
-                    if process_info.is_running:
-                        process_info.terminate()
-                        killed_processes.append(client_id)
-                        self.logger.info(f"🔪 Force killed client {client_id}")
-                    del self._processes[client_id]
-                except Exception as e:
-                    self.logger.error(f"Error force killing {client_id}: {e}")
-
-        return killed_processes
+            if client_id in self._processes:
+                return self._processes[client_id].log_file_path
+            return None
