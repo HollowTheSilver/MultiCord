@@ -37,7 +37,12 @@ class SecureQueryBuilder:
         'instance_feature_assignments',
         'bot_templates',
         'configuration_history',
-        'performance_metrics'
+        'performance_metrics',
+        # Authentication and security infrastructure
+        'api_keys',
+        'jwt_tokens',
+        'audit_log',
+        'rate_limit_buckets'
     }
     
     # Whitelisted column names for cleanup operations

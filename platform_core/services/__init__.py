@@ -29,6 +29,8 @@ from .health_monitoring_service import (
     HealthMetric,
     AlertSeverity
 )
+from .auth_service import DeviceFlowService
+from .token_service import TokenService
 
 __all__ = [
     "ProcessOrchestrator",
@@ -45,5 +47,7 @@ __all__ = [
     "HealthCheckResult",
     "HealthAlert",
     "HealthMetric",
-    "AlertSeverity"
+    "AlertSeverity",
+    "DeviceFlowService",
+    "TokenService"
 ]
