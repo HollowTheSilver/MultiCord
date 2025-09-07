@@ -1,0 +1,105 @@
+# MultiCord Platform - PostgreSQL Development Environment
+# =======================================================
+# 
+# This Docker Compose configuration provides a complete PostgreSQL 
+# development environment for the MultiCord Platform.
+#
+# Usage:
+#   docker-compose up -d     # Start in background
+#   docker-compose down      # Stop and remove
+#   docker-compose logs      # View logs
+
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: multicord-postgres
+    restart: unless-stopped
+    
+    environment:
+      POSTGRES_DB: multicord_platform
+      POSTGRES_USER: multicord_user
+      POSTGRES_PASSWORD: multicord_secure_pass
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    
+    ports:
+      - "5432:5432"
+    
+    volumes:
+      # Persist database data
+      - postgres_data:/var/lib/postgresql/data
+      
+      # Mount migrations for easy schema loading
+      - ./migrations:/docker-entrypoint-initdb.d:ro
+      
+      # Optional: Mount custom PostgreSQL config
+      # - ./postgres.conf:/etc/postgresql/postgresql.conf:ro
+    
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U multicord_user -d multicord_platform"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    
+    # Performance tuning for development
+    command: >
+      postgres
+      -c shared_preload_libraries=pg_stat_statements
+      -c pg_stat_statements.track=all
+      -c max_connections=100
+      -c shared_buffers=256MB
+      -c effective_cache_size=1GB
+      -c maintenance_work_mem=64MB
+      -c checkpoint_completion_target=0.9
+      -c wal_buffers=16MB
+      -c default_statistics_target=100
+      -c random_page_cost=1.1
+      -c effective_io_concurrency=200
+      -c work_mem=4MB
+      -c min_wal_size=1GB
+      -c max_wal_size=4GB
+
+  # Optional: pgAdmin for web-based database management
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: multicord-pgadmin
+    restart: unless-stopped
+    
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@multicord.local
+      PGADMIN_DEFAULT_PASSWORD: admin123
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: 'False'
+    
+    ports:
+      - "8080:80"
+    
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+      - ./docker-config/pgadmin-servers.json:/pgadmin4/servers.json:ro
+    
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./docker-data/postgres
+  
+  pgadmin_data:
+    driver: local
+    driver_opts:
+      type: none  
+      o: bind
+      device: ./docker-data/pgadmin
+
+# Networks for future expansion
+networks:
+  default:
+    name: multicord-network
+    driver: bridge

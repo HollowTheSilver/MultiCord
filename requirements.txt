@@ -1,81 +1,35 @@
-# Discord Cloud Platform (DCP) - Requirements
-# Core dependencies for the Discord bot platform with multi-database support
+# MultiCord Platform - Phase 1 Requirements
+# PostgreSQL-centered Discord bot infrastructure
 
-# Discord API library
-discord.py>=2.3.0
+# Core Dependencies
+asyncpg>=0.29.0          # PostgreSQL async driver
+psutil>=5.9.0            # Process monitoring and health checks
+discord.py>=2.3.0        # Discord API integration
 
-# Environment variable management
-python-dotenv>=1.0.0
+# Database & Infrastructure  
+asyncio-mqtt>=0.16.0     # For future message queue integration (optional)
 
-# Advanced logging with rotation and formatting
-loguru>=0.7.0
+# Development & Testing
+pytest>=7.4.0           # Testing framework
+pytest-asyncio>=0.21.0  # Async test support
+black>=23.0.0           # Code formatting
+mypy>=1.5.0             # Type checking
 
-# Core database support
-aiosqlite>=0.19.0            # SQLite async driver (always required)
+# Optional Dependencies for Enhanced Features
+# Uncomment as needed for specific deployments
 
-# Unicode text normalization
-unidecode>=1.3.0             # For fancy Discord text handling
+# Template & Configuration Management
+# jinja2>=3.1.0          # Template rendering
+# pyyaml>=6.0.0          # YAML configuration support
 
-# Multi-Client Platform Dependencies
-psutil>=5.9.0                # Process monitoring for platform management
+# Enhanced Monitoring
+# prometheus-client>=0.17.0  # Metrics export
+# structlog>=23.0.0      # Structured logging
 
-# ========================================
-# Optional Database Backends (Phase 2)
-# ========================================
+# Security & Authentication  
+# cryptography>=41.0.0   # Token hashing and security
+# pyjwt>=2.8.0          # JWT token support
 
-# PostgreSQL support (enterprise deployments)
-# asyncpg>=0.28.0
-
-# Firestore support (real-time, cloud-native)
-# google-cloud-firestore>=2.11.0
-
-# ========================================
-# Optional: Additional Features
-# ========================================
-
-# HTTP requests
-# aiohttp>=3.8.0               # Async HTTP client/server
-# httpx>=0.24.0                # Modern HTTP client
-
-# Redis/Caching (future Phase 3 backend)
-# aioredis>=2.0.0              # Async Redis client
-
-# Data processing
-# pydantic>=2.0.0              # Data validation and serialization
-# orjson>=3.9.0                # Fast JSON serialization
-
-# MongoDB support (future Phase 3 backend)
-# motor>=3.3.0                 # Async MongoDB driver
-
-# Monitoring and observability
-# prometheus-client>=0.17.0    # Metrics collection
-# sentry-sdk>=1.30.0           # Error tracking
-
-# ========================================
-# Development Tools (uncomment for development)
-# ========================================
-
-# Code quality
-# black>=23.0.0                # Code formatting
-# flake8>=6.0.0                # Linting
-# mypy>=1.5.0                  # Type checking
-
-# Testing
-# pytest>=7.4.0               # Testing framework
-# pytest-asyncio>=0.21.0      # Async testing support
-# pytest-cov>=4.1.0           # Coverage reporting
-
-# ========================================
-# Database Backend Installation Commands
-# ========================================
-#
-# For PostgreSQL support:
-# pip install asyncpg>=0.28.0
-#
-# For Firestore support:
-# pip install google-cloud-firestore>=2.11.0
-#
-# For complete database support:
-# pip install asyncpg>=0.28.0 google-cloud-firestore>=2.11.0
-#
-# Note: SQLite support is always available (aiosqlite is required)
+# Web API Integration (for Django dashboard)
+# fastapi>=0.100.0      # REST API framework
+# uvicorn>=0.23.0       # ASGI server
