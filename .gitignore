@@ -78,6 +78,16 @@ dmypy.json
 config.toml
 !templates/*/config.toml
 
+# Templates (early development stage)
+templates/
+
+# Local bot instances
+bots/
+
+# Process registry lock file
+.multicord_registry.lock
+*.lock
+
 # Never commit tokens
 *.token
 .env

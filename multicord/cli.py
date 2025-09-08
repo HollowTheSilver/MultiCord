@@ -120,7 +120,9 @@ def list(local, cloud, status):
     table.add_column("Name", style="cyan")
     table.add_column("Status", style="green")
     table.add_column("Type", style="yellow")
-    table.add_column("Template")
+    table.add_column("Port")
+    table.add_column("CPU %", justify="right")
+    table.add_column("Memory MB", justify="right")
     table.add_column("PID/ID")
     
     # Get local bots
@@ -132,7 +134,9 @@ def list(local, cloud, status):
                 bot['name'],
                 f"[{status_color}]{bot['status']}[/]",
                 "Local",
-                bot.get('template', '-'),
+                str(bot.get('port', '-')),
+                f"{bot.get('cpu_percent', 0):.1f}" if bot['status'] == "running" else "-",
+                f"{bot.get('memory_mb', 0):.1f}" if bot['status'] == "running" else "-",
                 str(bot.get('pid', '-'))
             )
     
@@ -215,7 +219,12 @@ def start(names, cloud):
             try:
                 display.info(f"Starting local bot '{name}'...")
                 pid = manager.start_bot(name)
-                display.success(f"Bot '{name}' started with PID {pid}")
+                # Get status to show port
+                status = manager.get_bot_status(name)
+                if status and status.get('port'):
+                    display.success(f"Bot '{name}' started with PID {pid} on port {status['port']}")
+                else:
+                    display.success(f"Bot '{name}' started with PID {pid}")
             except Exception as e:
                 display.error(f"Failed to start bot '{name}': {e}")
 
@@ -223,7 +232,8 @@ def start(names, cloud):
 @bot.command()
 @click.argument('names', nargs=-1, required=True)
 @click.option('--cloud', is_flag=True, help='Stop cloud bot')
-def stop(names, cloud):
+@click.option('--force', is_flag=True, help='Force stop if graceful shutdown fails')
+def stop(names, cloud, force):
     """Stop one or more bots."""
     
     if cloud:
@@ -244,8 +254,11 @@ def stop(names, cloud):
         
         for name in names:
             try:
-                display.info(f"Stopping local bot '{name}'...")
-                manager.stop_bot(name)
+                if force:
+                    display.info(f"Force stopping local bot '{name}'...")
+                else:
+                    display.info(f"Stopping local bot '{name}'...")
+                manager.stop_bot(name, force=force)
                 display.success(f"Bot '{name}' stopped")
             except Exception as e:
                 display.error(f"Failed to stop bot '{name}': {e}")
@@ -262,8 +275,43 @@ def status(name):
     local_status = manager.get_bot_status(name)
     if local_status:
         console.print(f"\n[bold cyan]Local Bot: {name}[/]")
-        for key, value in local_status.items():
-            console.print(f"  {key}: {value}")
+        
+        # Status with color
+        status = local_status.get('status', 'unknown')
+        status_color = "green" if status == "running" else "red"
+        console.print(f"  Status: [{status_color}]{status}[/{status_color}]")
+        
+        # Basic info
+        console.print(f"  Path: {local_status.get('path', '-')}")
+        console.print(f"  PID: {local_status.get('pid', '-')}")
+        console.print(f"  Port: {local_status.get('port', '-')}")
+        
+        # Health metrics if running
+        if status == "running":
+            console.print(f"\n  [yellow]Health Metrics:[/]")
+            console.print(f"    Memory: {local_status.get('memory_mb', 0):.1f} MB")
+            console.print(f"    CPU: {local_status.get('cpu_percent', 0):.1f}%")
+            
+            # Uptime formatting
+            uptime = local_status.get('uptime_seconds', 0)
+            if uptime > 3600:
+                uptime_str = f"{int(uptime // 3600)}h {int((uptime % 3600) // 60)}m"
+            elif uptime > 60:
+                uptime_str = f"{int(uptime // 60)}m {int(uptime % 60)}s"
+            else:
+                uptime_str = f"{int(uptime)}s"
+            console.print(f"    Uptime: {uptime_str}")
+            
+            # Health status
+            is_healthy = local_status.get('is_healthy', False)
+            health_color = "green" if is_healthy else "yellow"
+            console.print(f"    Healthy: [{health_color}]{is_healthy}[/{health_color}]")
+            
+            # Additional info
+            if local_status.get('restart_count', 0) > 0:
+                console.print(f"    Restarts: {local_status['restart_count']}")
+            if local_status.get('started_at'):
+                console.print(f"    Started: {local_status['started_at']}")
     
     # Try cloud if authenticated
     if client.is_authenticated():
@@ -279,6 +327,112 @@ def status(name):
     
     if not local_status and not cloud_status:
         display.error(f"Bot '{name}' not found")
+
+
+@bot.command()
+@click.argument('names', nargs=-1, required=True)
+@click.option('--cloud', is_flag=True, help='Restart cloud bot')
+def restart(names, cloud):
+    """Restart one or more bots."""
+    
+    if cloud:
+        client = APIClient()
+        if not client.is_authenticated():
+            display.error("Please login first: multicord auth login")
+            sys.exit(1)
+        
+        for name in names:
+            try:
+                display.info(f"Restarting cloud bot '{name}'...")
+                client.restart_bot(name)
+                display.success(f"Cloud bot '{name}' restarted")
+            except Exception as e:
+                display.error(f"Failed to restart cloud bot '{name}': {e}")
+    else:
+        manager = BotManager()
+        
+        for name in names:
+            try:
+                display.info(f"Restarting local bot '{name}'...")
+                pid = manager.restart_bot(name)
+                # Get status to show port
+                status = manager.get_bot_status(name)
+                if status and status.get('port'):
+                    display.success(f"Bot '{name}' restarted with PID {pid} on port {status['port']}")
+                else:
+                    display.success(f"Bot '{name}' restarted with PID {pid}")
+            except Exception as e:
+                display.error(f"Failed to restart bot '{name}': {e}")
+
+
+@bot.command()
+@click.option('--watch', is_flag=True, help='Watch health in real-time')
+def health(watch):
+    """Display health dashboard for all running bots."""
+    manager = BotManager()
+    
+    try:
+        if watch:
+            display.info("Starting health monitoring (Ctrl+C to stop)...")
+            manager.display_health_dashboard()
+            # TODO: Implement live updating with rich.Live
+        else:
+            # Get health summary
+            summary = manager.get_health_dashboard()
+            
+            # Display summary stats
+            console.print("\n[bold cyan]System Health Summary[/]\n")
+            console.print(f"Total Bots: {summary['total_bots']}")
+            console.print(f"[green]Healthy: {summary['healthy']}[/green]")
+            console.print(f"[yellow]Warning: {summary['warning']}[/yellow]")
+            console.print(f"[red]Critical: {summary['critical']}[/red]")
+            console.print(f"[red]Dead: {summary['dead']}[/red]")
+            console.print(f"\nTotal Memory: {summary['total_memory_mb']:.1f} MB")
+            console.print(f"Average CPU: {summary['average_cpu_percent']:.1f}%")
+            
+            # Display bot details
+            if summary['bots']:
+                console.print("\n[bold]Bot Details:[/]")
+                table = Table()
+                table.add_column("Bot", style="cyan")
+                table.add_column("Health", style="bold")
+                table.add_column("Memory MB", justify="right")
+                table.add_column("CPU %", justify="right")
+                table.add_column("Uptime", justify="right")
+                
+                for bot in summary['bots']:
+                    # Health color
+                    level_colors = {
+                        'healthy': 'green',
+                        'warning': 'yellow', 
+                        'critical': 'red',
+                        'dead': 'red bold'
+                    }
+                    health_color = level_colors.get(bot['level'], 'white')
+                    
+                    # Format uptime
+                    uptime = bot.get('uptime_seconds', 0)
+                    if uptime > 3600:
+                        uptime_str = f"{int(uptime // 3600)}h {int((uptime % 3600) // 60)}m"
+                    elif uptime > 60:
+                        uptime_str = f"{int(uptime // 60)}m {int(uptime % 60)}s"
+                    else:
+                        uptime_str = f"{int(uptime)}s"
+                    
+                    table.add_row(
+                        bot['name'],
+                        f"[{health_color}]{bot['level'].upper()}[/{health_color}]",
+                        f"{bot['memory_mb']:.1f}",
+                        f"{bot['cpu_percent']:.1f}",
+                        uptime_str
+                    )
+                
+                console.print(table)
+            else:
+                console.print("\n[yellow]No bots currently running[/]")
+                
+    except Exception as e:
+        display.error(f"Failed to get health dashboard: {e}")
 
 
 @bot.command()
@@ -411,8 +565,9 @@ def doctor():
     
     # Display results
     for check, status, passed in checks:
-        icon = "✅" if passed else "❌"
-        console.print(f"{icon} {check}: {status}")
+        icon = "[OK]" if passed else "[FAIL]"
+        color = "green" if passed else "red"
+        console.print(f"[{color}]{icon}[/{color}] {check}: {status}")
     
     # Overall status
     all_passed = all(p for _, _, p in checks if _ != "Authentication")
