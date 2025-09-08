@@ -1,0 +1,90 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environment
+.venv/
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Testing
+.coverage
+.pytest_cache/
+htmlcov/
+.tox/
+.hypothesis/
+*.cover
+.coverage.*
+
+# Package distribution
+*.tar.gz
+*.whl
+
+# Documentation
+docs/_build/
+site/
+
+# OS
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+logs/
+
+# Local bot data (user's bots, not part of package)
+~/.multicord/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+.cache/
+
+# MyPy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# User configuration
+config.toml
+!templates/*/config.toml
+
+# Never commit tokens
+*.token
+.env
+.env.*
+
+# Development documentation (not for commits)
+CLAUDE.md
+PROJECT_STRUCTURE.md
+TODO.md
+.claude/

@@ -1,0 +1,27 @@
+# MultiCord CLI Requirements
+# Minimal dependencies for thin client
+
+# CLI Framework
+click>=8.1.0
+
+# HTTP Client (for API communication)
+httpx>=0.26.0
+
+# Data Validation
+pydantic>=2.5.0
+
+# Secure Token Storage
+keyring>=24.0.0
+
+# Beautiful CLI Output
+rich>=13.0.0
+
+# Configuration
+python-dotenv>=1.0.0
+toml>=0.10.0
+
+# Local Bot Management
+psutil>=5.9.0
+
+# Async Support
+aiofiles>=23.0.0
