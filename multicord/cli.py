@@ -13,6 +13,7 @@ from multicord.api.client import APIClient
 from multicord.local.bot_manager import BotManager
 from multicord.utils.config import ConfigManager
 from multicord.utils.display import Display
+from multicord.utils.errors import handle_error, FriendlyError, NetworkError, AuthenticationError
 
 console = Console()
 display = Display()
@@ -45,6 +46,7 @@ def auth():
 
 @auth.command()
 @click.option('--api-url', default=None, help='Custom API URL')
+@handle_error
 def login(api_url):
     """
     Login to MultiCord cloud services.
@@ -55,27 +57,36 @@ def login(api_url):
     
     client = APIClient(api_url=api_url)
     
-    try:
-        # Start device flow
-        device_auth = client.start_device_flow()
-        
-        # Display user code
-        console.print(f"\n[bold yellow]Please visit:[/] {device_auth['verification_uri']}")
-        console.print(f"[bold yellow]Enter code:[/] [bold cyan]{device_auth['user_code']}[/]\n")
-        
-        # Poll for completion
-        display.info("Waiting for authorization...")
-        tokens = client.poll_for_token(device_auth['device_code'], device_auth['interval'])
-        
-        if tokens:
-            display.success("Successfully authenticated!")
-            console.print(f"Access token expires in {tokens['expires_in']} seconds")
-        else:
-            display.error("Authentication failed or timed out")
-            
-    except Exception as e:
-        display.error(f"Authentication error: {e}")
-        sys.exit(1)
+    # Check if API is reachable
+    if not client.is_online():
+        raise NetworkError("Cannot connect to MultiCord API. Please check your internet connection.")
+    
+    # Start device flow
+    device_auth = client.start_device_flow()
+    
+    if not device_auth:
+        raise FriendlyError(
+            "Failed to start authentication flow",
+            "The API might be experiencing issues.",
+            "Please try again later or contact support if the problem persists."
+        )
+    
+    # Display user code
+    console.print(f"\n[bold yellow]Please visit:[/] {device_auth['verification_uri']}")
+    console.print(f"[bold yellow]Enter code:[/] [bold cyan]{device_auth['user_code']}[/]\n")
+    
+    # Poll for completion
+    display.info("Waiting for authorization...")
+    tokens = client.poll_for_token(device_auth['device_code'], device_auth['interval'])
+    
+    if tokens:
+        display.success("Successfully authenticated!")
+        console.print(f"Access token expires in {tokens['expires_in']} seconds")
+    else:
+        raise AuthenticationError(
+            "Authentication timed out or was denied",
+            "The device code may have expired or authorization was not completed."
+        )
 
 
 @auth.command()
