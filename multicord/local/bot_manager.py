@@ -3,12 +3,14 @@ Local bot process management with advanced orchestration.
 """
 
 import json
+import toml
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 
 from .process_orchestrator import ProcessOrchestrator, ProcessStatus
 from .health_monitor import HealthMonitor
+from multicord.utils.sync import ConfigSync
 
 
 class BotManager:
@@ -284,3 +286,89 @@ level = "INFO"
         """Install a template from URL."""
         # TODO: Implement template installation
         return name or "custom"
+
+    def export_bot_for_deploy(self, bot_name: str) -> Optional[Dict[str, Any]]:
+        """Export bot configuration and metadata for cloud deployment."""
+        bot_path = self.bots_dir / bot_name
+        if not bot_path.exists():
+            return None
+
+        # Initialize sync manager
+        sync_manager = ConfigSync(self.bots_dir)
+
+        # Get bot configuration
+        config = sync_manager.get_local_config(bot_name)
+        if not config:
+            return None
+
+        # Get template info from metadata
+        template = "custom"
+        meta_file = bot_path / ".multicord_meta.json"
+        if meta_file.exists():
+            try:
+                with open(meta_file) as f:
+                    meta = json.load(f)
+                    template = meta.get("template", "custom")
+            except:
+                pass
+
+        # Build deployment package
+        deploy_package = {
+            "name": bot_name,
+            "template": template,
+            "config": config,
+            "metadata": {
+                "exported_at": datetime.utcnow().isoformat(),
+                "source": "local",
+                "path": str(bot_path)
+            }
+        }
+
+        # Remove sensitive data (token should be handled separately)
+        if "token" in deploy_package["config"]:
+            deploy_package["config"]["token"] = ""
+            deploy_package["metadata"]["token_removed"] = True
+
+        return deploy_package
+
+    def import_bot_from_cloud(self, bot_name: str, cloud_config: Dict[str, Any]) -> bool:
+        """Import bot configuration from cloud."""
+        # Initialize sync manager
+        sync_manager = ConfigSync(self.bots_dir)
+
+        # Check if bot exists locally
+        bot_path = self.bots_dir / bot_name
+        if not bot_path.exists():
+            # Create bot directory
+            bot_path.mkdir(parents=True, exist_ok=True)
+
+            # Create basic bot.py if it doesn't exist
+            bot_file = bot_path / "bot.py"
+            if not bot_file.exists():
+                # Use basic template
+                template_bot = Path(__file__).parent.parent.parent / "templates" / "basic" / "bot.py"
+                if template_bot.exists():
+                    import shutil
+                    shutil.copy(template_bot, bot_file)
+
+        # Save configuration
+        return sync_manager.save_local_config(bot_name, cloud_config)
+
+    def sync_bot_with_cloud(self, bot_name: str, cloud_config: Dict[str, Any], strategy: str = "newest") -> Dict[str, Any]:
+        """Sync local bot with cloud configuration."""
+        from multicord.utils.sync import MergeStrategy
+
+        # Initialize sync manager
+        sync_manager = ConfigSync(self.bots_dir)
+
+        # Convert strategy string to enum
+        strategy_map = {
+            "local_first": MergeStrategy.LOCAL_FIRST,
+            "cloud_first": MergeStrategy.CLOUD_FIRST,
+            "newest": MergeStrategy.NEWEST,
+            "manual": MergeStrategy.MANUAL
+        }
+        merge_strategy = strategy_map.get(strategy, MergeStrategy.NEWEST)
+
+        # Perform sync
+        return sync_manager.sync_bot(bot_name, cloud_config, merge_strategy)

@@ -10,6 +10,7 @@ from typing import Optional, Dict, Any, List
 import keyring
 import json
 from functools import wraps
+from multicord.utils.cache import CacheManager
 
 
 def handle_network_errors(offline_return=None):
@@ -50,6 +51,7 @@ class APIClient:
         self._offline_mode = False
         self._last_network_check = 0
         self._network_check_interval = 60  # Check network every 60 seconds
+        self.cache = CacheManager()  # Initialize cache manager
         
     def _get_headers(self) -> Dict[str, str]:
         """Get request headers with authentication if available."""
@@ -179,22 +181,37 @@ class APIClient:
         except:
             return False
     
-    @handle_network_errors(offline_return=[])
-    def list_bots(self, status: Optional[str] = None) -> List[Dict[str, Any]]:
-        """List cloud bots (returns empty list if offline)."""
-        params = {}
-        if status:
-            params["status"] = status
-            
-        response = self.client.get(
-            f"{self.api_url}/v1/bots",
-            params=params,
-            headers=self._get_headers()
-        )
-        response.raise_for_status()
-        
-        data = response.json()
-        return data.get("bots", [])
+    @handle_network_errors(offline_return=None)
+    def list_bots(self, status: Optional[str] = None, use_cache: bool = True) -> List[Dict[str, Any]]:
+        """List cloud bots with caching support."""
+        # Try to get from API first
+        try:
+            params = {}
+            if status:
+                params["status"] = status
+
+            response = self.client.get(
+                f"{self.api_url}/v1/bots",
+                params=params,
+                headers=self._get_headers()
+            )
+            response.raise_for_status()
+
+            data = response.json()
+            bots = data.get("bots", [])
+
+            # Cache the result
+            if use_cache:
+                self.cache.set_bots(bots)
+
+            return bots
+        except Exception:
+            # If API fails and cache is enabled, try cache
+            if use_cache:
+                cached_bots = self.cache.get_bots()
+                if cached_bots is not None:
+                    return cached_bots
+            return []
     
     def create_bot(self, name: str, template: str) -> Dict[str, Any]:
         """Create a cloud bot."""
@@ -301,3 +318,108 @@ class APIClient:
         if not self.is_online():
             raise ConnectionError("API is not reachable. Please check your internet connection or use local commands.")
         return True
+
+    def deploy_bot(self, bot_name: str, bot_config: Dict[str, Any]) -> Dict[str, Any]:
+        """Deploy a local bot to the cloud."""
+        try:
+            # First check if bot exists
+            existing_bot = self.get_bot(bot_name)
+
+            if existing_bot:
+                # Update existing bot
+                response = self.client.put(
+                    f"{self.api_url}/v1/bots/{existing_bot['id']}",
+                    json=bot_config,
+                    headers=self._get_headers()
+                )
+            else:
+                # Create new bot
+                response = self.client.post(
+                    f"{self.api_url}/v1/bots",
+                    json={
+                        "name": bot_name,
+                        **bot_config
+                    },
+                    headers=self._get_headers()
+                )
+
+            response.raise_for_status()
+            result = response.json()
+
+            # Invalidate bot cache after deployment
+            self.cache.invalidate("bots")
+
+            return result
+        except Exception as e:
+            raise Exception(f"Failed to deploy bot: {e}")
+
+    def pull_bot_config(self, bot_name: str) -> Optional[Dict[str, Any]]:
+        """Pull bot configuration from cloud."""
+        try:
+            bot = self.get_bot(bot_name)
+            if not bot:
+                return None
+
+            # Cache the config
+            config = bot.get("config", {})
+            self.cache.set_bot_config(bot_name, config)
+
+            return config
+        except Exception:
+            # Try cache if API fails
+            cached_config = self.cache.get_bot_config(bot_name)
+            return cached_config
+
+    def sync_bot_config(self, bot_name: str, local_config: Dict[str, Any]) -> Dict[str, Any]:
+        """Sync bot configuration with cloud."""
+        try:
+            # Get cloud config
+            cloud_bot = self.get_bot(bot_name)
+            if not cloud_bot:
+                # Bot doesn't exist in cloud, create it
+                return self.deploy_bot(bot_name, {"config": local_config})
+
+            # Get cloud config
+            cloud_config = cloud_bot.get("config", {})
+
+            # For now, we'll just update cloud with local
+            # In future, we could implement more sophisticated merging
+            response = self.client.patch(
+                f"{self.api_url}/v1/bots/{cloud_bot['id']}/config",
+                json=local_config,
+                headers=self._get_headers()
+            )
+            response.raise_for_status()
+
+            result = response.json()
+
+            # Update cache
+            self.cache.set_bot_config(bot_name, local_config)
+
+            return result
+        except Exception as e:
+            raise Exception(f"Failed to sync bot config: {e}")
+
+    def get_templates(self, use_cache: bool = True) -> List[Dict[str, Any]]:
+        """Get available bot templates."""
+        try:
+            response = self.client.get(
+                f"{self.api_url}/v1/templates",
+                headers=self._get_headers()
+            )
+            response.raise_for_status()
+
+            templates = response.json().get("templates", [])
+
+            # Cache the result
+            if use_cache:
+                self.cache.set_templates(templates)
+
+            return templates
+        except Exception:
+            # Try cache if API fails
+            if use_cache:
+                cached_templates = self.cache.get_templates()
+                if cached_templates is not None:
+                    return cached_templates
+            return []

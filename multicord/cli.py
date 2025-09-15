@@ -121,53 +121,118 @@ def bot():
 @bot.command()
 @click.option('--local', is_flag=True, help='Show only local bots')
 @click.option('--cloud', is_flag=True, help='Show only cloud bots')
+@click.option('--sync', is_flag=True, help='Sync and show both local and cloud bots')
 @click.option('--status', type=click.Choice(['all', 'running', 'stopped', 'error']), default='all')
-def list(local, cloud, status):
+def list(local, cloud, sync, status):
     """List all bots (local and cloud)."""
     manager = BotManager()
     client = APIClient()
-    
+
+    # If sync flag is set, show both local and cloud
+    if sync:
+        local = False
+        cloud = False
+
     table = Table(title="Discord Bots")
     table.add_column("Name", style="cyan")
     table.add_column("Status", style="green")
-    table.add_column("Type", style="yellow")
-    table.add_column("Port")
+    table.add_column("Location", style="yellow")
+    table.add_column("Port/Template")
     table.add_column("CPU %", justify="right")
     table.add_column("Memory MB", justify="right")
     table.add_column("PID/ID")
-    
+
+    all_bots = {}
+
     # Get local bots
-    if not cloud:
+    if not cloud or sync:
         local_bots = manager.list_bots(status=status)
         for bot in local_bots:
-            status_color = "green" if bot['status'] == "running" else "red"
-            table.add_row(
-                bot['name'],
-                f"[{status_color}]{bot['status']}[/]",
-                "Local",
-                str(bot.get('port', '-')),
-                f"{bot.get('cpu_percent', 0):.1f}" if bot['status'] == "running" else "-",
-                f"{bot.get('memory_mb', 0):.1f}" if bot['status'] == "running" else "-",
-                str(bot.get('pid', '-'))
-            )
-    
-    # Get cloud bots if authenticated
-    if not local and client.is_authenticated():
+            all_bots[bot['name']] = {
+                **bot,
+                'location': 'Local',
+                'source': 'local'
+            }
+
+    # Get cloud bots if authenticated or sync requested
+    if (not local or sync) and client.is_authenticated():
         try:
-            cloud_bots = client.list_bots(status=status)
+            # Use cache for sync to improve performance
+            cloud_bots = client.list_bots(status=status, use_cache=True)
             for bot in cloud_bots:
-                status_color = "green" if bot['status'] == "running" else "red"
-                table.add_row(
-                    bot['name'],
-                    f"[{status_color}]{bot['status']}[/]",
-                    "Cloud",
-                    bot.get('template', '-'),
-                    bot['id'][:8]
-                )
+                bot_name = bot['name']
+                if bot_name in all_bots:
+                    # Bot exists both locally and in cloud
+                    all_bots[bot_name]['location'] = 'Both'
+                    all_bots[bot_name]['cloud_id'] = bot.get('id', '')[:8]
+                    all_bots[bot_name]['cloud_status'] = bot.get('status', 'unknown')
+                else:
+                    # Cloud-only bot
+                    all_bots[bot_name] = {
+                        'name': bot_name,
+                        'status': bot.get('status', 'unknown'),
+                        'location': 'Cloud',
+                        'template': bot.get('template', '-'),
+                        'cloud_id': bot.get('id', '')[:8],
+                        'source': 'cloud'
+                    }
         except Exception as e:
-            display.warning(f"Could not fetch cloud bots: {e}")
-    
+            if sync:
+                display.warning(f"Could not fetch cloud bots: {e}")
+                display.info("Showing cached cloud data if available...")
+                # Try to use cached data
+                cached_bots = client.cache.get_bots()
+                if cached_bots:
+                    for bot in cached_bots:
+                        bot_name = bot['name']
+                        if bot_name not in all_bots:
+                            all_bots[bot_name] = {
+                                'name': bot_name,
+                                'status': bot.get('status', 'unknown'),
+                                'location': 'Cloud (cached)',
+                                'template': bot.get('template', '-'),
+                                'cloud_id': bot.get('id', '')[:8],
+                                'source': 'cloud_cached'
+                            }
+
+    # Display all bots
+    for bot_name, bot in sorted(all_bots.items()):
+        status_color = "green" if bot.get('status') == "running" else "red"
+        location = bot.get('location', 'Unknown')
+
+        # Determine what to show in Port/Template column
+        if bot.get('source') == 'local':
+            port_template = str(bot.get('port', '-'))
+        else:
+            port_template = bot.get('template', '-')
+
+        # Determine PID/ID
+        if bot.get('source') == 'local':
+            pid_id = str(bot.get('pid', '-'))
+        elif bot.get('cloud_id'):
+            pid_id = bot.get('cloud_id')
+        else:
+            pid_id = '-'
+
+        table.add_row(
+            bot_name,
+            f"[{status_color}]{bot.get('status', 'unknown')}[/]",
+            location,
+            port_template,
+            f"{bot.get('cpu_percent', 0):.1f}" if bot.get('status') == "running" and bot.get('source') == 'local' else "-",
+            f"{bot.get('memory_mb', 0):.1f}" if bot.get('status') == "running" and bot.get('source') == 'local' else "-",
+            pid_id
+        )
+
     console.print(table)
+
+    # Show cache status if using sync
+    if sync:
+        cache_status = client.cache.get_cache_status()
+        if cache_status.get('caches', {}).get('bots'):
+            bot_cache = cache_status['caches']['bots']
+            if bot_cache['is_valid']:
+                console.print(f"\n[dim]Cloud data cached {bot_cache['age_seconds']}s ago, expires in {bot_cache['expires_in_seconds']}s[/]")
 
 
 @bot.command()
@@ -453,7 +518,7 @@ def health(watch):
 def logs(name, lines, follow):
     """View bot logs."""
     manager = BotManager()
-    
+
     try:
         if follow:
             display.info(f"Following logs for '{name}' (Ctrl+C to stop)...")
@@ -464,6 +529,184 @@ def logs(name, lines, follow):
                 console.print(line)
     except Exception as e:
         display.error(f"Failed to get logs: {e}")
+
+
+@bot.command()
+@click.argument('name')
+@click.option('--token', help='Bot token (will prompt if not provided)')
+@click.option('--force', is_flag=True, help='Force deployment even if bot exists in cloud')
+def deploy(name, token, force):
+    """Deploy a local bot to the cloud."""
+    manager = BotManager()
+    client = APIClient()
+
+    # Check authentication
+    if not client.is_authenticated():
+        display.error("Please login first: multicord auth login")
+        sys.exit(1)
+
+    # Check if bot exists locally
+    bot_package = manager.export_bot_for_deploy(name)
+    if not bot_package:
+        display.error(f"Bot '{name}' not found locally")
+        sys.exit(1)
+
+    # Handle token
+    if not token and not bot_package['config'].get('token'):
+        # Prompt for token if not provided
+        import getpass
+        token = getpass.getpass(f"Enter Discord bot token for '{name}': ")
+
+    if token:
+        bot_package['config']['token'] = token
+
+    # Check if bot exists in cloud
+    if not force:
+        try:
+            existing_bot = client.get_bot(name)
+            if existing_bot:
+                if not click.confirm(f"Bot '{name}' already exists in cloud. Update it?"):
+                    display.info("Deployment cancelled")
+                    return
+        except:
+            pass  # Bot doesn't exist, proceed with deployment
+
+    # Deploy to cloud
+    try:
+        display.info(f"Deploying bot '{name}' to cloud...")
+        result = client.deploy_bot(name, bot_package)
+        display.success(f"Bot '{name}' successfully deployed!")
+
+        if 'id' in result:
+            console.print(f"Cloud Bot ID: {result['id']}")
+        if 'status' in result:
+            console.print(f"Status: {result['status']}")
+
+        # Offer to start the bot
+        if click.confirm("Start the bot in cloud now?"):
+            try:
+                client.start_bot(result.get('id', name))
+                display.success(f"Bot '{name}' started in cloud")
+            except Exception as e:
+                display.warning(f"Could not start bot: {e}")
+
+    except Exception as e:
+        display.error(f"Failed to deploy bot: {e}")
+        sys.exit(1)
+
+
+@bot.command()
+@click.argument('name')
+@click.option('--strategy', type=click.Choice(['local_first', 'cloud_first', 'newest', 'manual']),
+              default='newest', help='Merge strategy for conflicts')
+def pull(name, strategy):
+    """Pull bot configuration from cloud to local."""
+    manager = BotManager()
+    client = APIClient()
+
+    # Check authentication
+    if not client.is_authenticated():
+        display.error("Please login first: multicord auth login")
+        sys.exit(1)
+
+    try:
+        display.info(f"Pulling configuration for '{name}' from cloud...")
+
+        # Get cloud configuration
+        cloud_config = client.pull_bot_config(name)
+        if not cloud_config:
+            display.error(f"Bot '{name}' not found in cloud")
+            sys.exit(1)
+
+        # Import or sync with local
+        if not (manager.bots_dir / name).exists():
+            # Bot doesn't exist locally, import it
+            if manager.import_bot_from_cloud(name, cloud_config):
+                display.success(f"Bot '{name}' imported from cloud")
+            else:
+                display.error(f"Failed to import bot '{name}'")
+        else:
+            # Bot exists locally, sync configurations
+            result = manager.sync_bot_with_cloud(name, cloud_config, strategy)
+
+            if result.get('success'):
+                display.success(f"Bot '{name}' configuration synced")
+                if result.get('changes'):
+                    console.print("\n[yellow]Changes made:[/]")
+                    for change in result['changes']:
+                        console.print(f"  • {change}")
+            elif result.get('requires_manual'):
+                display.warning("Manual conflict resolution required")
+                console.print("\n[yellow]Conflicts found:[/]")
+                for conflict in result.get('conflicts', []):
+                    console.print(f"  • {conflict['key']}:")
+                    console.print(f"    Local: {conflict['local_value']}")
+                    console.print(f"    Cloud: {conflict['cloud_value']}")
+            else:
+                display.error(f"Failed to sync: {result.get('error', 'Unknown error')}")
+
+    except Exception as e:
+        display.error(f"Failed to pull bot configuration: {e}")
+        sys.exit(1)
+
+
+@bot.command()
+@click.argument('name')
+@click.option('--strategy', type=click.Choice(['local_first', 'cloud_first', 'newest']),
+              default='newest', help='Merge strategy for conflicts')
+@click.option('--bidirectional', is_flag=True, help='Sync in both directions')
+def sync(name, strategy, bidirectional):
+    """Synchronize bot configuration between local and cloud."""
+    manager = BotManager()
+    client = APIClient()
+
+    # Check authentication
+    if not client.is_authenticated():
+        display.error("Please login first: multicord auth login")
+        sys.exit(1)
+
+    try:
+        display.info(f"Synchronizing bot '{name}'...")
+
+        # Get local configuration
+        from multicord.utils.sync import ConfigSync
+        sync_manager = ConfigSync(manager.bots_dir)
+        local_config = sync_manager.get_local_config(name)
+
+        if not local_config:
+            # No local bot, try to pull from cloud
+            display.info(f"Bot '{name}' not found locally, attempting to pull from cloud...")
+            cloud_config = client.pull_bot_config(name)
+            if cloud_config:
+                if manager.import_bot_from_cloud(name, cloud_config):
+                    display.success(f"Bot '{name}' imported from cloud")
+                else:
+                    display.error(f"Failed to import bot")
+            else:
+                display.error(f"Bot '{name}' not found locally or in cloud")
+            return
+
+        # Sync with cloud
+        result = client.sync_bot_config(name, local_config)
+        display.success(f"Configuration synced to cloud")
+
+        if bidirectional:
+            # Also pull cloud changes
+            cloud_config = client.pull_bot_config(name)
+            if cloud_config:
+                sync_result = manager.sync_bot_with_cloud(name, cloud_config, strategy)
+                if sync_result.get('changes'):
+                    console.print("\n[yellow]Local changes:[/]")
+                    for change in sync_result['changes']:
+                        console.print(f"  • {change}")
+
+        # Invalidate cache after sync
+        client.cache.invalidate(f"bot_{name}_config")
+        client.cache.invalidate("bots")
+
+    except Exception as e:
+        display.error(f"Failed to sync bot: {e}")
+        sys.exit(1)
 
 
 @cli.group()
@@ -506,6 +749,97 @@ def install(url, name):
         display.success(f"Template '{template_name}' installed successfully")
     except Exception as e:
         display.error(f"Failed to install template: {e}")
+
+
+@cli.group()
+def cache():
+    """Cache management commands."""
+    pass
+
+
+@cache.command()
+def status():
+    """Show cache status and statistics."""
+    client = APIClient()
+    cache_status = client.cache.get_cache_status()
+
+    console.print("[bold cyan]Cache Status[/]\n")
+    console.print(f"Cache Directory: {cache_status['cache_dir']}")
+
+    if not cache_status['caches']:
+        console.print("\n[yellow]No cached data found[/]")
+        return
+
+    table = Table(title="Cached Data")
+    table.add_column("Type", style="cyan")
+    table.add_column("Age", justify="right")
+    table.add_column("Expires In", justify="right")
+    table.add_column("Status", style="bold")
+
+    for cache_type, info in cache_status['caches'].items():
+        age = info['age_seconds']
+        expires = info['expires_in_seconds']
+
+        # Format age
+        if age > 3600:
+            age_str = f"{age // 3600}h {(age % 3600) // 60}m"
+        elif age > 60:
+            age_str = f"{age // 60}m {age % 60}s"
+        else:
+            age_str = f"{age}s"
+
+        # Format expiry
+        if expires > 3600:
+            expires_str = f"{expires // 3600}h {(expires % 3600) // 60}m"
+        elif expires > 60:
+            expires_str = f"{expires // 60}m {expires % 60}s"
+        elif expires > 0:
+            expires_str = f"{expires}s"
+        else:
+            expires_str = "Expired"
+
+        status = "[green]Valid[/]" if info['is_valid'] else "[red]Expired[/]"
+
+        table.add_row(cache_type, age_str, expires_str, status)
+
+    console.print(table)
+
+
+@cache.command()
+def clear():
+    """Clear all cached data."""
+    client = APIClient()
+
+    if click.confirm("Clear all cached data?"):
+        client.cache.invalidate()
+        display.success("Cache cleared")
+    else:
+        display.info("Cache clear cancelled")
+
+
+@cache.command()
+def refresh():
+    """Refresh cached data from API."""
+    client = APIClient()
+
+    if not client.is_authenticated():
+        display.error("Please login first: multicord auth login")
+        return
+
+    display.info("Refreshing cache from API...")
+
+    try:
+        # Refresh bots
+        bots = client.list_bots(use_cache=False)
+        display.success(f"Cached {len(bots)} bots")
+
+        # Refresh templates
+        templates = client.get_templates(use_cache=False)
+        display.success(f"Cached {len(templates)} templates")
+
+        display.success("Cache refreshed successfully")
+    except Exception as e:
+        display.error(f"Failed to refresh cache: {e}")
 
 
 @cli.group()
