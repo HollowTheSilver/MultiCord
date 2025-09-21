@@ -45,59 +45,72 @@ def auth():
 
 
 @auth.command()
+def status():
+    """Check authentication status."""
+    from multicord.auth import get_tokens
+    from multicord.auth.discord import DiscordAuth
+
+    tokens = get_tokens()
+    if tokens:
+        # Get user info
+        auth_client = DiscordAuth()
+        user_info = auth_client.get_user_info()
+
+        if user_info:
+            console.print("[green][OK][/] Authenticated as:", style="bold")
+            console.print(f"  Discord User: {user_info.get('discord_username', 'Unknown')}")
+            console.print(f"  Discord ID: {user_info.get('discord_id', 'Unknown')}")
+            console.print(f"  Email: {user_info.get('discord_email', 'Not available')}")
+        else:
+            console.print("[green][OK][/] Authenticated (user info not available)")
+    else:
+        console.print("[red]✗[/] Not authenticated")
+        console.print("Use [yellow]multicord auth login[/] to authenticate")
+
+
+@auth.command()
 @click.option('--api-url', default=None, help='Custom API URL')
+@click.option('--no-browser', is_flag=True, help='Use device flow for browserless environments')
 @handle_error
-def login(api_url):
+def login(api_url, no_browser):
     """
     Login to MultiCord cloud services.
-    
-    Uses OAuth2 device flow for secure authentication.
+
+    Uses Discord OAuth2 with smart authentication:
+    - Browser flow when available (default)
+    - Device flow for SSH/Docker/EC2 (auto-detected or --no-browser)
     """
-    display.info("Starting authentication flow...")
-    
-    client = APIClient(api_url=api_url)
-    
+    from multicord.auth import authenticate
+
+    # Use default API URL if not provided
+    api_url = api_url or "http://localhost:8000"
+
     # Check if API is reachable
+    client = APIClient(api_url=api_url)
     if not client.is_online():
         raise NetworkError("Cannot connect to MultiCord API. Please check your internet connection.")
-    
-    # Start device flow
-    device_auth = client.start_device_flow()
-    
-    if not device_auth:
-        raise FriendlyError(
-            "Failed to start authentication flow",
-            "The API might be experiencing issues.",
-            "Please try again later or contact support if the problem persists."
-        )
-    
-    # Display user code
-    console.print(f"\n[bold yellow]Please visit:[/] {device_auth['verification_uri']}")
-    console.print(f"[bold yellow]Enter code:[/] [bold cyan]{device_auth['user_code']}[/]\n")
-    
-    # Poll for completion
-    display.info("Waiting for authorization...")
-    tokens = client.poll_for_token(device_auth['device_code'], device_auth['interval'])
-    
-    if tokens:
+
+    # Use hybrid authentication
+    success = authenticate(no_browser=no_browser, api_url=api_url)
+
+    if success:
         display.success("Successfully authenticated!")
-        console.print(f"Access token expires in {tokens['expires_in']} seconds")
     else:
         raise AuthenticationError(
-            "Authentication timed out or was denied",
-            "The device code may have expired or authorization was not completed."
+            "Authentication failed",
+            "The authentication process was cancelled or failed."
         )
 
 
 @auth.command()
-def logout():
+@click.option('--api-url', default=None, help='Custom API URL')
+def logout(api_url):
     """Logout from MultiCord cloud services."""
-    client = APIClient()
-    
-    if client.logout():
-        display.success("Successfully logged out")
-    else:
-        display.warning("No active session found")
+    from multicord.auth import logout as auth_logout
+
+    api_url = api_url or "http://localhost:8000"
+    auth_logout(api_url)
+    display.success("Successfully logged out")
 
 
 @auth.command()

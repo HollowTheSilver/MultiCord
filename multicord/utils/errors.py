@@ -14,26 +14,26 @@ class ErrorMessages:
     """Centralized error messages for better user experience."""
     
     # Network and connectivity errors
-    NETWORK_OFFLINE = "📡 No internet connection detected. Local bot management is still available."
-    API_UNREACHABLE = "⚠️  Cannot reach MultiCord API. Please check your internet connection or try again later."
+    NETWORK_OFFLINE = "[NETWORK] No internet connection detected. Local bot management is still available."
+    API_UNREACHABLE = "[WARNING]  Cannot reach MultiCord API. Please check your internet connection or try again later."
     API_TIMEOUT = "⏱️  Request timed out. The API might be slow or unreachable."
     
     # Authentication errors
-    AUTH_REQUIRED = "🔐 Authentication required. Please run 'multicord auth login' first."
+    AUTH_REQUIRED = "[AUTH] Authentication required. Please run 'multicord auth login' first."
     TOKEN_EXPIRED = "⏰ Your session has expired. Please login again with 'multicord auth login'."
-    INVALID_CREDENTIALS = "❌ Invalid credentials. Please check your login information."
+    INVALID_CREDENTIALS = "[ERROR] Invalid credentials. Please check your login information."
     DEVICE_CODE_EXPIRED = "⏰ Device code expired. Please start the authentication process again."
     
     # Bot management errors
     BOT_NOT_FOUND = "🤖 Bot '{name}' not found. Use 'multicord bot list' to see available bots."
-    BOT_ALREADY_RUNNING = "✅ Bot '{name}' is already running."
+    BOT_ALREADY_RUNNING = "[OK] Bot '{name}' is already running."
     BOT_NOT_RUNNING = "💤 Bot '{name}' is not currently running."
-    BOT_START_FAILED = "❌ Failed to start bot '{name}'. Check the logs for details."
-    BOT_STOP_FAILED = "❌ Failed to stop bot '{name}'. It may have already stopped."
+    BOT_START_FAILED = "[ERROR] Failed to start bot '{name}'. Check the logs for details."
+    BOT_STOP_FAILED = "[ERROR] Failed to stop bot '{name}'. It may have already stopped."
     
     # Configuration errors
     CONFIG_NOT_FOUND = "📋 Configuration file not found. Creating default configuration."
-    INVALID_CONFIG = "⚠️  Invalid configuration detected. Please check your settings."
+    INVALID_CONFIG = "[WARNING]  Invalid configuration detected. Please check your settings."
     TEMPLATE_NOT_FOUND = "📁 Template '{name}' not found. Available templates: basic, moderation, music."
     
     # Permission errors
@@ -42,7 +42,7 @@ class ErrorMessages:
     
     # General errors
     UNKNOWN_ERROR = "❓ An unexpected error occurred. Please try again or report this issue."
-    COMMAND_FAILED = "❌ Command failed: {reason}"
+    COMMAND_FAILED = "[ERROR] Command failed: {reason}"
 
 
 class FriendlyError(Exception):
@@ -66,7 +66,7 @@ class FriendlyError(Exception):
         
         if self.suggestion:
             error_text.append("\n\n")
-            error_text.append("💡 Suggestion: ", style="bold yellow")
+            error_text.append("[!] Suggestion: ", style="bold yellow")
             error_text.append(self.suggestion, style="yellow")
         
         panel = Panel(
@@ -114,6 +114,9 @@ class BotError(FriendlyError):
 
 def handle_error(func):
     """Decorator to handle errors and display friendly messages."""
+    import functools
+
+    @functools.wraps(func)
     def wrapper(*args, **kwargs):
         try:
             return func(*args, **kwargs)
@@ -137,13 +140,13 @@ def handle_error(func):
             # Log the full error for debugging
             import traceback
             debug_info = traceback.format_exc()
-            
+
             FriendlyError(
                 ErrorMessages.UNKNOWN_ERROR,
                 str(e),
                 "Enable debug mode with --debug flag for more information."
             ).display()
-            
+
             # In debug mode, show the full traceback
             import sys
             if '--debug' in sys.argv:

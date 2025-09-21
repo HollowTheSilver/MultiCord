@@ -72,65 +72,43 @@ class APIClient:
         expiry = int(time.time()) + tokens.get("expires_in", 3600)
         keyring.set_password(self.SERVICE_NAME, self.TOKEN_EXPIRY_KEY, str(expiry))
     
-    def start_device_flow(self) -> Dict[str, Any]:
-        """Initiate OAuth2 device flow authentication."""
+    def discord_login(self) -> str:
+        """Get Discord OAuth2 login URL."""
+        try:
+            response = self.client.get(
+                f"{self.api_url}/v1/auth/discord",
+                follow_redirects=False
+            )
+            # Return the redirect URL to Discord
+            if response.status_code in [302, 307]:
+                return response.headers.get("Location", "")
+            return f"{self.api_url}/v1/auth/discord"
+        except httpx.RequestError as e:
+            raise Exception(f"Failed to connect to API: {e}")
+
+    def exchange_discord_code(self, code: str, state: str) -> Dict[str, Any]:
+        """Exchange Discord authorization code for tokens."""
         try:
             response = self.client.post(
-                f"{self.api_url}/v1/auth/device",
-                json={"client_id": "multicord-cli"},
+                f"{self.api_url}/v1/auth/discord/exchange",
+                json={
+                    "code": code,
+                    "state": state
+                },
                 headers={"Content-Type": "application/json"}
             )
-            response.raise_for_status()
-            return response.json()
+
+            if response.status_code == 200:
+                tokens = response.json()
+                self._store_tokens(tokens)
+                return tokens
+            else:
+                raise Exception(f"Failed to exchange code: {response.text}")
+
         except httpx.RequestError as e:
             raise Exception(f"Failed to connect to API: {e}")
         except httpx.HTTPStatusError as e:
             raise Exception(f"API error: {e.response.text}")
-    
-    def poll_for_token(self, device_code: str, interval: int) -> Optional[Dict[str, Any]]:
-        """Poll for token completion."""
-        max_attempts = 60  # Max 5 minutes at 5-second intervals
-        attempts = 0
-        
-        while attempts < max_attempts:
-            time.sleep(interval)
-            
-            try:
-                response = self.client.post(
-                    f"{self.api_url}/v1/auth/token",
-                    data={
-                        "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
-                        "device_code": device_code,
-                        "client_id": "multicord-cli"
-                    },
-                    headers={"Content-Type": "application/x-www-form-urlencoded"}
-                )
-                
-                if response.status_code == 200:
-                    tokens = response.json()
-                    self._store_tokens(tokens)
-                    return tokens
-                elif response.status_code == 400:
-                    error = response.json().get("error")
-                    if error == "authorization_pending":
-                        # User hasn't authorized yet, keep polling
-                        attempts += 1
-                        continue
-                    elif error == "slow_down":
-                        # Increase polling interval
-                        interval += 5
-                        continue
-                    else:
-                        # Other error (expired, denied, etc.)
-                        return None
-                else:
-                    return None
-                    
-            except Exception:
-                attempts += 1
-                continue
-        
-        return None
     
     def is_authenticated(self) -> bool:
         """Check if user is authenticated."""
