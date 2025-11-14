@@ -11,6 +11,7 @@ from datetime import datetime
 from .process_orchestrator import ProcessOrchestrator, ProcessStatus
 from .health_monitor import HealthMonitor
 from multicord.utils.sync import ConfigSync
+from multicord.utils.template_repository import TemplateRepository
 
 
 class BotManager:
@@ -20,14 +21,17 @@ class BotManager:
         self.config_dir = Path.home() / ".multicord"
         self.bots_dir = self.config_dir / "bots"
         self.templates_dir = self.config_dir / "templates"
-        
+
         # Ensure directories exist
         self.bots_dir.mkdir(parents=True, exist_ok=True)
         self.templates_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Initialize orchestrator and health monitor
         self.orchestrator = ProcessOrchestrator(bots_dir=self.bots_dir)
         self.health_monitor = HealthMonitor(self.orchestrator)
+
+        # Initialize template repository manager
+        self.template_repo = TemplateRepository()
     
     def list_bots(self, status: Optional[str] = None) -> List[Dict[str, Any]]:
         """List all local bots with orchestrator status."""
@@ -63,7 +67,7 @@ class BotManager:
                     meta_file = bot_dir / ".multicord_meta.json"
                     if meta_file.exists():
                         try:
-                            with open(meta_file) as f:
+                            with open(meta_file, encoding='utf-8') as f:
                                 meta = json.load(f)
                                 template = meta.get("template", "unknown")
                         except:
@@ -81,82 +85,84 @@ class BotManager:
                         })
         return bots
     
-    def create_bot(self, name: str, template: str) -> Path:
-        """Create a new bot from template."""
-        import shutil
-        
+    def create_bot(self, name: str, template: str, repo: Optional[str] = None) -> Path:
+        """
+        Create a new bot from template repository.
+
+        Args:
+            name: Bot name to create
+            template: Template name to use
+            repo: Specific repository to use, or None to auto-detect by priority
+
+        Returns:
+            Path to created bot directory
+        """
         bot_path = self.bots_dir / name
         if bot_path.exists():
             raise ValueError(f"Bot '{name}' already exists")
-        
-        # Check for template in templates directory
-        template_path = Path(__file__).parent.parent.parent / "templates" / template
-        
-        if template_path.exists():
-            # Copy entire template directory
-            shutil.copytree(template_path, bot_path)
-            
-            # Create metadata file
+
+        # Find template using priority system if repo not specified
+        if repo is None:
+            template_match = self.template_repo.find_template(template)
+            if not template_match:
+                raise ValueError(
+                    f"Template '{template}' not found in any enabled repository. "
+                    f"Run 'multicord template list' to see available templates or "
+                    f"'multicord repo update --all' to refresh repositories."
+                )
+            repo, template_info = template_match
+        else:
+            # Use specific repository
+            template_info = self.template_repo.get_template_info(template, repo)
+            if not template_info:
+                raise ValueError(f"Template '{template}' not found in repository '{repo}'")
+
+        # Install template from repository
+        try:
+            self.template_repo.install_template(template, bot_path, repo)
+
+            # Create metadata file with version tracking
             meta_file = bot_path / ".multicord_meta.json"
             meta_data = {
                 "template": template,
+                "repository": repo,
+                "template_version": template_info.get("version", "unknown"),
                 "created_at": datetime.now().isoformat(),
                 "multicord_version": "1.0.0"
             }
-            with open(meta_file, 'w') as f:
+            with open(meta_file, 'w', encoding='utf-8') as f:
                 json.dump(meta_data, f, indent=2)
-            
+
             # Create logs directory
             (bot_path / "logs").mkdir(exist_ok=True)
-            
+
             # Create data directory for bot data
             (bot_path / "data").mkdir(exist_ok=True)
-            
-        else:
-            # Fallback to creating basic structure
-            bot_path.mkdir(parents=True)
-            
-            # Create basic bot file
-            bot_file = bot_path / "bot.py"
-            bot_file.write_text("""#!/usr/bin/env python3
-# Discord bot implementation
-import os
-import sys
-import logging
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+            return bot_path
 
-bot_name = os.environ.get('BOT_NAME', 'bot')
-bot_port = os.environ.get('BOT_PORT', '8100')
-
-logger.info(f"Bot {bot_name} starting on port {bot_port}...")
-
-# Add your Discord bot code here
-# Example: import discord; from discord.ext import commands
-""")
-            
-            # Create config file
-            config_file = bot_path / "config.toml"
-            config_file.write_text("""[bot]
-token = "YOUR_BOT_TOKEN_HERE"
-prefix = "!"
-
-[logging]
-level = "INFO"
-""")
-            
-            # Create logs directory
-            (bot_path / "logs").mkdir(exist_ok=True)
-        
-        return bot_path
+        except Exception as e:
+            # Clean up on failure
+            if bot_path.exists():
+                import shutil
+                shutil.rmtree(bot_path)
+            raise RuntimeError(f"Failed to create bot from template: {e}")
     
-    def start_bot(self, name: str) -> int:
-        """Start a bot process using orchestrator."""
-        success, message = self.orchestrator.start_bot(name)
+    def start_bot(self, name: str, env_vars: Optional[Dict[str, str]] = None) -> int:
+        """
+        Start a bot process using orchestrator.
+
+        Args:
+            name: Bot name to start
+            env_vars: Optional environment variables to inject into the bot process
+
+        Returns:
+            PID of the started process
+        """
+        success, message = self.orchestrator.start_bot(name, env_vars=env_vars)
         if not success:
             raise ValueError(message)
-        
+
         # Extract PID from success message
         process_info = self.orchestrator.registry.get_process(name)
         if process_info:
@@ -225,7 +231,7 @@ level = "INFO"
         if not log_file.exists():
             return ["No logs available"]
         
-        with open(log_file, "r") as f:
+        with open(log_file, "r", encoding='utf-8') as f:
             all_lines = f.readlines()
             return all_lines[-lines:]
     
@@ -249,7 +255,7 @@ level = "INFO"
                     if config_file.exists():
                         try:
                             import toml
-                            with open(config_file) as f:
+                            with open(config_file, encoding='utf-8') as f:
                                 config = toml.load(f)
                                 description = config.get("bot", {}).get("description", description)
                         except:
@@ -306,7 +312,7 @@ level = "INFO"
         meta_file = bot_path / ".multicord_meta.json"
         if meta_file.exists():
             try:
-                with open(meta_file) as f:
+                with open(meta_file, encoding='utf-8') as f:
                     meta = json.load(f)
                     template = meta.get("template", "custom")
             except:

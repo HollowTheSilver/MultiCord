@@ -1,0 +1,30 @@
+# MANIFEST.in - Specifies additional files to include in the package
+
+# Include the README
+include README.md
+
+# Include the license file
+include LICENSE
+
+# Templates are now downloaded from GitHub repository
+# Default repo: https://github.com/HollowTheSilver/MultiCord-Templates.git
+# No longer bundled with the package
+
+# Include requirements files
+include requirements.txt
+include requirements-dev.txt
+
+# Include Python typed marker
+include py.typed
+
+# Exclude unnecessary files
+global-exclude *.pyc
+global-exclude *.pyo
+global-exclude *.swp
+global-exclude *~
+global-exclude __pycache__
+global-exclude .git
+global-exclude .gitignore
+global-exclude .pytest_cache
+global-exclude .coverage
+global-exclude *.log

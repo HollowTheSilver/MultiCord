@@ -283,10 +283,14 @@ class ProcessOrchestrator:
         self.processes: Dict[str, subprocess.Popen] = {}
         self.logger = logging.getLogger(__name__)
     
-    def start_bot(self, bot_name: str) -> Tuple[bool, str]:
+    def start_bot(self, bot_name: str, env_vars: Optional[Dict[str, str]] = None) -> Tuple[bool, str]:
         """
         Start a bot process with conflict resolution and monitoring.
-        
+
+        Args:
+            bot_name: Name of the bot to start
+            env_vars: Optional dictionary of environment variables to inject
+
         Returns:
             Tuple of (success, message)
         """
@@ -318,6 +322,10 @@ class ProcessOrchestrator:
         env['BOT_NAME'] = bot_name
         env['BOT_PORT'] = str(port)
         env['BOT_CONFIG'] = str(bot_path / "config.toml")
+
+        # Inject custom environment variables if provided
+        if env_vars:
+            env.update(env_vars)
         
         # Create log file
         log_file = self.logs_dir / f"{bot_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
