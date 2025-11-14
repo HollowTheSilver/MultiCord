@@ -9,6 +9,8 @@ import subprocess
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 
+from multicord.utils.venv_manager import VenvManager
+
 
 class CogRepository:
     """Manages cog repositories and installations."""
@@ -23,6 +25,7 @@ class CogRepository:
         self.template_repo_path = template_repo_path
         self.cogs_dir = template_repo_path / "cogs"
         self.manifest_path = template_repo_path / "manifest.json"
+        self.venv_manager = VenvManager()
 
     def list_available_cogs(self) -> Dict[str, Dict[str, Any]]:
         """
@@ -212,32 +215,42 @@ class CogRepository:
 
     def _install_requirements(self, requirements_file: Path, bot_path: Path) -> None:
         """
-        Install cog requirements using pip.
+        Install cog requirements into bot's isolated virtual environment.
 
         Args:
             requirements_file: Path to requirements.txt
             bot_path: Path to the bot directory
+
+        Raises:
+            RuntimeError: If venv is invalid or installation fails
         """
+        # Validate bot's venv exists
+        is_valid, venv_msg = self.venv_manager.validate_venv(bot_path)
+        if not is_valid:
+            raise RuntimeError(
+                f"Bot venv invalid: {venv_msg}. "
+                f"Create with: multicord venv install {bot_path.name}"
+            )
+
+        # Get bot's venv Python executable
+        venv_python = self.venv_manager.get_venv_python(bot_path)
+
+        # Get shared pip cache directory
+        pip_cache_dir = self.venv_manager.pip_cache_dir
+
         try:
-            # Use the virtual environment if it exists
-            venv_python = bot_path / ".venv" / "Scripts" / "python.exe"
-            if not venv_python.exists():
-                venv_python = bot_path / ".venv" / "bin" / "python"
-
-            if venv_python.exists():
-                python_cmd = str(venv_python)
-            else:
-                python_cmd = "python"
-
+            # Install cog requirements into bot's isolated venv
             subprocess.run(
-                [python_cmd, "-m", "pip", "install", "-r", str(requirements_file)],
+                [str(venv_python), "-m", "pip", "install",
+                 "-r", str(requirements_file),
+                 "--cache-dir", str(pip_cache_dir)],
                 check=True,
                 capture_output=True,
-                text=True
+                text=True,
+                cwd=bot_path
             )
         except subprocess.CalledProcessError as e:
-            # Log warning but don't fail the installation
-            print(f"Warning: Failed to install cog requirements: {e.stderr}")
+            raise RuntimeError(f"Failed to install cog requirements: {e.stderr}")
 
     def _update_bot_config(self, bot_path: Path, cog_name: str, action: str) -> None:
         """
