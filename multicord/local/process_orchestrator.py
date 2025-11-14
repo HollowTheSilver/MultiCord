@@ -18,6 +18,8 @@ from uuid import uuid4
 
 import psutil
 
+from multicord.utils.venv_manager import VenvManager
+
 try:
     import fcntl
     HAS_FCNTL = True
@@ -277,9 +279,10 @@ class ProcessOrchestrator:
         self.bots_dir = bots_dir or (Path.home() / ".multicord" / "bots")
         self.logs_dir = logs_dir or (Path.home() / ".multicord" / "logs")
         self.logs_dir.mkdir(parents=True, exist_ok=True)
-        
+
         self.registry = ProcessRegistry()
         self.port_manager = PortManager()
+        self.venv_manager = VenvManager(bots_dir=self.bots_dir)
         self.processes: Dict[str, subprocess.Popen] = {}
         self.logger = logging.getLogger(__name__)
     
@@ -307,21 +310,40 @@ class ProcessOrchestrator:
         bot_path = self.bots_dir / bot_name
         if not bot_path.exists():
             return False, f"Bot '{bot_name}' not found"
-        
+
         bot_file = bot_path / "bot.py"
         if not bot_file.exists():
             return False, f"Bot file not found: {bot_file}"
-        
+
+        # Validate bot's virtual environment exists
+        is_valid, venv_msg = self.venv_manager.validate_venv(bot_path)
+        if not is_valid:
+            return False, f"Bot venv invalid: {venv_msg}. Run: multicord venv install {bot_name}"
+
+        # Get bot's venv Python executable
+        venv_python = self.venv_manager.get_venv_python(bot_path)
+
         # Allocate port
         port = self.port_manager.allocate_port()
         if not port:
             return False, "No available ports for bot"
-        
-        # Prepare environment
+
+        # Prepare environment with venv activation
         env = os.environ.copy()
         env['BOT_NAME'] = bot_name
         env['BOT_PORT'] = str(port)
         env['BOT_CONFIG'] = str(bot_path / "config.toml")
+
+        # Set virtual environment variables
+        venv_dir = bot_path / ".venv"
+        env['VIRTUAL_ENV'] = str(venv_dir)
+
+        # Update PATH to include venv Scripts/bin directory
+        if sys.platform == 'win32':
+            venv_scripts = venv_dir / "Scripts"
+        else:
+            venv_scripts = venv_dir / "bin"
+        env['PATH'] = f"{venv_scripts}{os.pathsep}{env.get('PATH', '')}"
 
         # Inject custom environment variables if provided
         if env_vars:
@@ -331,10 +353,10 @@ class ProcessOrchestrator:
         log_file = self.logs_dir / f"{bot_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
         
         try:
-            # Start process
+            # Start process using bot's isolated venv Python
             with open(log_file, 'w') as log_handle:
                 process = subprocess.Popen(
-                    [sys.executable, str(bot_file)],
+                    [str(venv_python), str(bot_file)],
                     cwd=str(bot_path),
                     env=env,
                     stdout=log_handle,

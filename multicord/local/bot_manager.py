@@ -12,6 +12,7 @@ from .process_orchestrator import ProcessOrchestrator, ProcessStatus
 from .health_monitor import HealthMonitor
 from multicord.utils.sync import ConfigSync
 from multicord.utils.template_repository import TemplateRepository
+from multicord.utils.venv_manager import VenvManager
 
 
 class BotManager:
@@ -32,6 +33,9 @@ class BotManager:
 
         # Initialize template repository manager
         self.template_repo = TemplateRepository()
+
+        # Initialize virtual environment manager
+        self.venv_manager = VenvManager(bots_dir=self.bots_dir)
     
     def list_bots(self, status: Optional[str] = None) -> List[Dict[str, Any]]:
         """List all local bots with orchestrator status."""
@@ -120,6 +124,18 @@ class BotManager:
         # Install template from repository
         try:
             self.template_repo.install_template(template, bot_path, repo)
+
+            # Create isolated virtual environment for bot
+            venv_success, venv_msg = self.venv_manager.create_venv(bot_path)
+            if not venv_success:
+                raise RuntimeError(f"Failed to create virtual environment: {venv_msg}")
+
+            # Install bot requirements into isolated venv
+            requirements_file = bot_path / "requirements.txt"
+            if requirements_file.exists():
+                install_success, install_msg = self.venv_manager.install_requirements(bot_path)
+                if not install_success:
+                    raise RuntimeError(f"Failed to install requirements: {install_msg}")
 
             # Create metadata file with version tracking
             meta_file = bot_path / ".multicord_meta.json"
@@ -378,3 +394,48 @@ class BotManager:
 
         # Perform sync
         return sync_manager.sync_bot(bot_name, cloud_config, merge_strategy)
+
+    def get_venv_python(self, bot_name: str) -> Path:
+        """
+        Get path to bot's venv Python executable.
+
+        Args:
+            bot_name: Name of the bot
+
+        Returns:
+            Path to venv Python executable
+        """
+        bot_path = self.bots_dir / bot_name
+        return self.venv_manager.get_venv_python(bot_path)
+
+    def validate_bot_venv(self, bot_name: str) -> tuple[bool, str]:
+        """
+        Validate that a bot's virtual environment is properly set up.
+
+        Args:
+            bot_name: Name of the bot
+
+        Returns:
+            Tuple of (is_valid, message)
+        """
+        bot_path = self.bots_dir / bot_name
+        if not bot_path.exists():
+            return False, f"Bot '{bot_name}' does not exist"
+
+        return self.venv_manager.validate_venv(bot_path)
+
+    def get_bot_venv_info(self, bot_name: str) -> Optional[Dict]:
+        """
+        Get detailed information about a bot's virtual environment.
+
+        Args:
+            bot_name: Name of the bot
+
+        Returns:
+            Dictionary with venv info, or None if invalid
+        """
+        bot_path = self.bots_dir / bot_name
+        if not bot_path.exists():
+            return None
+
+        return self.venv_manager.get_venv_info(bot_path)
