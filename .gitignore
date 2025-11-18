@@ -47,6 +47,20 @@ htmlcov/
 # Package distribution
 *.tar.gz
 *.whl
+multicord.egg-info/
+pip-wheel-metadata/
+*.egg
+MANIFEST
+
+# PyPI build artifacts
+build/
+dist/
+.pypirc  # NEVER commit PyPI credentials
+.eggs/
+
+# Test PyPI artifacts
+.tox/
+noxfile.py
 
 # Documentation
 docs/_build/
@@ -56,9 +70,14 @@ site/
 Thumbs.db
 desktop.ini
 
+# Windows bug - undeletable nul files created on interrupt
+nul
+
 # Logs
 *.log
 logs/
+publish_*.log
+upload_*.log
 
 # Local bot data (user's bots, not part of package)
 ~/.multicord/
@@ -78,7 +97,13 @@ dmypy.json
 config.toml
 !templates/*/config.toml
 
-# Templates (early development stage)
+# Templates are now in separate repository
+# Downloaded templates cache (user-specific)
+.multicord/templates/
+.multicord/template_cache/
+.multicord/repositories/
+
+# Old bundled templates (migrated to separate repo)
 templates/
 
 # Local bot instances
@@ -97,4 +122,9 @@ bots/
 CLAUDE.md
 PROJECT_STRUCTURE.md
 TODO.md
+TESTING.md
 .claude/
+AWS_DEPLOYMENT.md
+AWS_DEPLOYMENT_HYBRID.md
+DEPLOYMENT_GUIDE.md
+CRITICAL_REFACTOR.md

@@ -8,6 +8,7 @@ Automatically detects the best method based on the environment.
 import os
 import sys
 from typing import Optional
+from urllib.parse import urlparse
 from .discord import DiscordAuth
 from .device import DeviceFlowClient
 
@@ -34,18 +35,49 @@ def is_browser_available() -> bool:
     return False
 
 
-def authenticate(no_browser: bool = False, api_url: str = "http://localhost:8000") -> bool:
+def is_localhost_api(api_url: str) -> bool:
+    """Check if API URL is localhost/local development.
+
+    Args:
+        api_url: Base URL for MultiCord API
+
+    Returns:
+        True if API is localhost, False if remote
     """
-    Smart authentication with automatic detection and fallback.
+    parsed = urlparse(api_url)
+    hostname = parsed.hostname or ''
+
+    # Check for localhost indicators
+    localhost_names = {'localhost', '127.0.0.1', '::1'}
+    if hostname.lower() in localhost_names:
+        return True
+
+    # Check for Docker internal networks
+    if '.docker.internal' in hostname:
+        return True
+
+    # Remote API
+    return False
+
+
+def authenticate(no_browser: bool = False, api_url: str = "http://localhost:8000", method: Optional[str] = None) -> bool:
+    """
+    Authenticate with MultiCord API using environment-aware method selection.
+
+    Automatically selects the optimal authentication method based on environment:
+    - Localhost API: Device flow
+    - Remote API with browser: Browser callback flow
+    - Remote API without browser: Device flow
+    - Manual override available via method parameter
 
     Args:
         no_browser: Force device flow even if browser is available
         api_url: Base URL for MultiCord API
+        method: Manual auth method override ('auto', 'device', 'browser')
 
     Returns:
         True if authentication successful
     """
-    # Check if already authenticated
     auth_client = DiscordAuth(api_url)
     if auth_client.is_authenticated():
         user_info = auth_client.get_user_info()
@@ -53,29 +85,39 @@ def authenticate(no_browser: bool = False, api_url: str = "http://localhost:8000
             print(f"[OK] Already authenticated as: {user_info.get('discord_username', 'Unknown')}")
             return True
 
-    # Determine authentication method
+    localhost = is_localhost_api(api_url)
     browser_available = is_browser_available()
 
-    if no_browser:
-        print("[AUTH] Using device flow authentication (--no-browser flag set)")
+    if method == 'device' or no_browser:
+        print("[AUTH] Using device flow authentication (manual override)")
+        device_client = DeviceFlowClient(api_url)
+        return device_client.authenticate()
+
+    elif method == 'browser':
+        print("[AUTH] Using browser callback authentication (manual override)")
+        try:
+            return auth_client.authenticate()
+        except Exception as e:
+            print(f"\n[ERROR] Browser authentication failed: {e}")
+            return False
+
+    elif localhost:
+        print("[AUTH] Detected localhost API - using device flow authentication")
         device_client = DeviceFlowClient(api_url)
         return device_client.authenticate()
 
     elif not browser_available:
         print("[AUTH] No browser detected - using device flow authentication")
-        print("   (You're likely in an SSH session or container)")
         device_client = DeviceFlowClient(api_url)
         return device_client.authenticate()
 
     else:
-        # Try browser flow first
-        print("[AUTH] Opening browser for Discord authentication...")
+        print("[AUTH] Detected remote API with browser - using browser callback")
         try:
             success = auth_client.authenticate()
             if success:
                 return True
 
-            # Browser flow failed, offer device flow
             print("\n[WARNING] Browser authentication failed or was cancelled")
             print("Would you like to try device flow authentication instead? (y/n): ", end="")
             response = input().strip().lower()

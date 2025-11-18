@@ -1,211 +1,618 @@
 # MultiCord CLI
 
-## Run Multiple Discord Bots with Ease
+**Version 1.1.0** | Run Multiple Discord Bots Like a Pro
 
-MultiCord makes it simple to manage multiple Discord bots on your local machine with automatic resource isolation, unified monitoring, and seamless cloud integration.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 
-## ✨ Features
+MultiCord transforms Discord bot management from chaos to control. Run 10 bots on your laptop or deploy 1000 to the cloud—all with simple, intuitive commands.
 
-### Local Bot Management (Free Forever)
-- **Run Multiple Bots**: Start unlimited Discord bots simultaneously
-- **Automatic Isolation**: Each bot runs in its own process with dedicated resources
-- **Port Management**: Automatic port assignment prevents conflicts
-- **Unified Monitoring**: See all your bots' status in one place
-- **Template System**: Quick bot creation from templates
-- **Resource Tracking**: Monitor CPU and memory per bot
-- **Graceful Shutdown**: Stop individual bots or all at once
+---
 
-### Cloud Integration (Premium)
-- **Multi-Node Deployment**: Deploy bots across multiple servers
-- **Advanced Analytics**: Detailed metrics and insights
-- **Template Marketplace**: Access community templates
-- **Enterprise Management**: Manage bots for multiple clients
-- **Auto-Scaling**: Scale bots based on demand
-- **High Availability**: Automatic failover and recovery
+## 🎯 What is MultiCord?
+
+MultiCord is a professional CLI tool for managing multiple Discord bots with complete process isolation, health monitoring, and cloud integration.
+
+### The Problem
+```bash
+# Traditional approach (painful):
+cd bot1 && python bot.py &
+cd ../bot2 && python bot.py &  # Port conflict!
+cd ../bot3 && python bot.py &  # Resource issues!
+# Manual process management, no monitoring, dependency conflicts...
+```
+
+### The Solution
+```bash
+# MultiCord approach (professional):
+multicord bot create my-bot --template music
+multicord bot start my-bot music-bot trading-bot  # All handled automatically
+multicord bot status  # Real-time monitoring with health metrics
+```
+
+---
+
+## ✨ Key Features
+
+### 🖥️ Local Bot Management (Free Forever)
+
+- **Per-Bot Isolated Virtual Environments** ⭐ NEW in v1.1
+  - Complete dependency isolation (different discord.py versions per bot)
+  - Self-contained, portable bot directories
+  - Shared pip cache for 60-80% disk savings
+  - Industry-standard microservice architecture
+
+- **Advanced Process Orchestration**
+  - Automatic port assignment and conflict resolution
+  - Sophisticated process isolation with resource monitoring
+  - Real-time health monitoring with CPU, memory, and uptime tracking
+  - Graceful shutdown handling with timeout management
+
+- **Modular Cog System** ⭐ NEW in v1.1
+  - Install optional features as modular cogs
+  - Enterprise-grade permissions system (9-level hierarchy)
+  - Repository-based cog management
+  - Automatic dependency installation
+
+- **Template Update Ecosystem** ⭐ NEW in v1.1
+  - Multi-repository support with priority system
+  - Automatic update detection with semantic versioning
+  - Three update strategies (core-only, safe-merge, full-replace)
+  - Intelligent config merging preserving user values
+  - Compressed backups with one-command rollback
+
+- **Production-Ready Templates**
+  - **basic**: Simple command bot with event handling
+  - **moderation**: Full moderation suite (kick, ban, timeout, warnings, role management)
+  - **music**: Music bot with YouTube integration and queue management
+  - **business**: Professional bot with automatic cog loading
+
+### ☁️ Cloud Integration (Premium)
+
+- **Multi-Node Deployment**: Deploy bots to cloud infrastructure
+- **Configuration Sync**: Bidirectional sync with conflict resolution
+- **Offline Caching**: Transparent fallback when API unavailable
+- **Advanced Analytics**: Detailed metrics and insights (future)
+- **Auto-Scaling**: Scale based on demand (future)
+
+---
 
 ## 🚀 Quick Start
 
 ### Installation
 
 ```bash
-# Install from PyPI
-pip install multicord
-
-# Or install from source
+# Install from source (PyPI coming soon)
 git clone https://github.com/HollowTheSilver/MultiCord.git
 cd CLI
 pip install -e .
 ```
 
-### Basic Usage
+**Requirements**: Python 3.9+ • Windows, Linux, or macOS
+
+### Your First Bot in 3 Commands
 
 ```bash
-# Create a new bot from template
+# 1. Create bot from template (with isolated venv)
 multicord bot create my-music-bot --template music
 
-# Configure your bot
+# 2. Configure your bot token
 cd ~/.multicord/bots/my-music-bot
-# Edit config.toml with your Discord token
+# Edit config.toml and add your Discord token
 
-# Start the bot
+# 3. Start the bot
 multicord bot start my-music-bot
+```
 
-# Start multiple bots
-multicord bot start trading-bot music-bot moderation-bot
+### Managing Multiple Bots
 
-# Check status of all bots
-multicord bot list
+```bash
+# Create multiple bots
+multicord bot create trading-bot --template basic
+multicord bot create mod-bot --template moderation
 
-# View bot logs
-multicord bot logs my-music-bot
+# Start them all
+multicord bot start my-music-bot trading-bot mod-bot
 
-# Stop a bot
-multicord bot stop my-music-bot
+# Monitor with real-time dashboard
+multicord bot health  # Live dashboard with health metrics
+
+# Check status
+multicord bot status  # Detailed status for all bots
+
+# View logs
+multicord bot logs my-music-bot --follow
 
 # Stop all bots
 multicord bot stop --all
 ```
 
-### Templates
+---
 
+## 📋 Complete Command Reference
+
+MultiCord CLI provides **43 commands** across **9 command groups**.
+
+### 🔐 Authentication (`multicord auth`) - 4 commands
+
+Manage authentication with MultiCord API using Discord OAuth2.
+
+- `multicord auth login` - Login with Discord (opens browser for OAuth2)
+- `multicord auth logout` - Logout and clear stored tokens
+- `multicord auth status` - Check authentication status and show Discord user info
+- `multicord auth refresh` - Refresh access token
+
+**Example**:
 ```bash
-# List available templates
+multicord auth login    # Opens Discord authorization in browser
+multicord auth status   # Shows: Logged in as YourDiscordUser#1234
+```
+
+---
+
+### 🤖 Bot Management (`multicord bot`) - 14 commands
+
+Complete bot lifecycle management with health monitoring.
+
+#### Bot Lifecycle
+- `multicord bot create <name> --template <template>` - Create new bot from template
+  - **Flags**: `--template` (required), `--repo` (custom repository)
+  - **Automatic**: Creates isolated venv, installs requirements.txt
+
+- `multicord bot delete <name>` - Delete a bot (with confirmation)
+
+- `multicord bot start <name> [name2...]` - Start one or more bots
+  - **Flags**: `--all` (start all bots)
+  - **Validation**: Checks venv exists before starting
+
+- `multicord bot stop <name> [name2...]` - Stop one or more bots
+  - **Flags**: `--all` (stop all bots), `--force` (force kill)
+
+- `multicord bot restart <name> [name2...]` - Restart one or more bots
+
+#### Monitoring
+- `multicord bot list` - List all bots with status
+  - **Flags**: `--local`, `--cloud`, `--sync` (merged view), `--status <running|stopped>`
+
+- `multicord bot status [name]` - Detailed status with health metrics
+  - Shows: PID, port, CPU, memory, uptime, health level
+
+- `multicord bot health` - Real-time health monitoring dashboard
+  - **Flags**: `--refresh <seconds>` (auto-refresh interval)
+  - **Display**: Color-coded health levels, resource usage, alerts
+
+- `multicord bot logs <name>` - View bot logs
+  - **Flags**: `--follow` (tail -f style), `--lines <n>`, `--cloud`
+
+#### Cloud Operations
+- `multicord bot deploy <name>` - Deploy bot to cloud
+  - **Flags**: `--node <node-name>` (target deployment node)
+
+- `multicord bot pull <name>` - Pull cloud bot configuration to local
+
+- `multicord bot sync <name>` - Bidirectional sync with conflict resolution
+  - **Flags**: `--strategy <local_first|cloud_first|newest|manual>`
+
+#### Template Updates ⭐ NEW in v1.1
+- `multicord bot check-updates [name]` - Check for available template updates
+  - **Flags**: `--all` (check all bots)
+  - **Display**: Shows version changes, breaking changes, changelogs
+
+- `multicord bot update <name>` - Apply template updates
+  - **Flags**: `--strategy <core-only|safe-merge|full-replace>`, `--dry-run`, `--version <version>`
+  - **Safety**: Automatic compressed backup before update
+
+- `multicord bot rollback <name>` - Rollback to previous backup
+  - **Flags**: `--list` (show available backups), `--backup <name>`
+
+**Examples**:
+```bash
+# Create and start a bot
+multicord bot create my-bot --template music
+multicord bot start my-bot
+
+# Monitor multiple bots
+multicord bot list --status running
+multicord bot health --refresh 5  # Auto-refresh every 5 seconds
+
+# Update template
+multicord bot check-updates my-bot
+multicord bot update my-bot --strategy safe-merge
+```
+
+---
+
+### 🔧 Virtual Environments (`multicord venv`) - 4 commands ⭐ NEW in v1.1
+
+Manage per-bot isolated virtual environments.
+
+- `multicord venv install <bot>` - Install/reinstall bot dependencies from requirements.txt
+  - **Flags**: `--upgrade` (upgrade existing packages)
+
+- `multicord venv clean <bot>` - Remove and recreate bot's venv from scratch
+  - **Safety**: Confirmation prompt before deletion
+
+- `multicord venv update <bot>` - Upgrade all packages in bot's venv to latest versions
+
+- `multicord venv info <bot>` - Show venv information
+  - **Flags**: `--all` (show summary for all bots)
+  - **Display**: Python version, installed packages, disk usage, pip cache stats
+
+**Examples**:
+```bash
+# View all bot venvs
+multicord venv info --all
+
+# Reinstall dependencies for a bot
+multicord venv clean my-bot
+
+# Upgrade all packages
+multicord venv update my-bot
+```
+
+---
+
+### 🧩 Cog Management (`multicord cog`) - 5 commands ⭐ NEW in v1.1
+
+Install and manage modular bot features (cogs).
+
+- `multicord cog available` - List all available cogs from repository
+  - **Display**: Grouped by category, shows version, author, featured cogs
+
+- `multicord cog list <bot>` - Show installed cogs for a bot
+
+- `multicord cog add <bot> <cog>` - Install cog to bot
+  - **Automatic**: Copies cog files, installs dependencies into bot's venv
+
+- `multicord cog remove <bot> <cog>` - Uninstall cog from bot
+  - **Note**: Dependencies not automatically removed
+
+- `multicord cog update <bot> [cog]` - Update cog(s) to latest version
+  - **Flags**: `--all` (update all installed cogs)
+
+**Examples**:
+```bash
+# Browse available cogs
+multicord cog available
+
+# Install permissions system
+multicord cog add my-bot permissions
+
+# List installed cogs
+multicord cog list my-bot
+```
+
+---
+
+### 📦 Template Management (`multicord template`) - 2 commands
+
+Manage bot templates.
+
+- `multicord template list` - List available templates
+  - **Display**: Shows all templates from all enabled repositories
+
+- `multicord template install <url>` - Install custom template from URL
+  - **Supports**: Git repositories
+
+**Examples**:
+```bash
 multicord template list
-
-# Install a template from URL
-multicord template install https://github.com/user/discord-bot-template
-
-# Create bot from custom template
-multicord bot create my-bot --template custom-template
+multicord template install https://github.com/user/custom-bot-template
 ```
 
-### Cloud Features (Optional)
+---
 
+### 🔄 Repository Management (`multicord repo`) - 8 commands ⭐ NEW in v1.1
+
+Manage template and cog repositories with priority system.
+
+- `multicord repo list` - Show all configured repositories
+  - **Display**: Priority order, enabled/disabled status, type (official/custom)
+
+- `multicord repo add <name> <url>` - Add custom repository
+  - **Flags**: `--priority <n>` (higher = checked first)
+
+- `multicord repo remove <name>` - Remove repository
+
+- `multicord repo update [name]` - Update repository (git pull)
+  - **Flags**: `--all` (update all repositories)
+
+- `multicord repo info <name>` - Show repository details
+  - **Display**: URL, branch, templates, cogs, last updated
+
+- `multicord repo priority <name> <priority>` - Set repository priority
+  - **Note**: Higher priority repos override lower ones for same template names
+
+- `multicord repo enable <name>` - Enable repository
+
+- `multicord repo disable <name>` - Disable repository
+
+**Examples**:
 ```bash
-# Login to MultiCord cloud
-multicord auth login
+# Add organization's private templates
+multicord repo add my-org https://github.com/my-org/templates.git
 
-# List both local and cloud bots
-multicord bot list --sync
+# Update all repositories
+multicord repo update --all
 
-# Deploy bot to cloud
-multicord bot deploy my-bot --node us-east-1
-
-# Stream logs from cloud bot
-multicord bot logs my-bot --cloud --follow
+# Set priority (higher = checked first)
+multicord repo priority my-org 100
 ```
 
-## 📁 Project Structure
+---
+
+### 💾 Cache Management (`multicord cache`) - 3 commands
+
+Manage API response caching for offline operation.
+
+- `multicord cache status` - Show cache statistics
+  - **Display**: Size, entry count, hit rate, TTL info
+
+- `multicord cache clear` - Clear all cached data
+
+- `multicord cache refresh` - Refresh cache from API
+  - **Fetches**: Bots, templates, user profile
+
+**Examples**:
+```bash
+multicord cache status
+multicord cache refresh  # Refresh from API
+```
+
+---
+
+### ⚙️ Configuration (`multicord config`) - 2 commands
+
+View and modify global configuration.
+
+- `multicord config show` - Show current configuration
+  - **Display**: Local settings, API settings, authentication status
+
+- `multicord config set <key> <value>` - Set configuration value
+
+**Examples**:
+```bash
+multicord config show
+multicord config set api.url https://api.multicord.io
+```
+
+---
+
+### 🏥 System Health (`multicord doctor`) - 1 command
+
+Check system health and dependencies.
+
+- `multicord doctor` - Run comprehensive system health check
+  - **Checks**: Python version, discord.py, API connectivity, authentication
+  - **Display**: Color-coded pass/fail for each check
+
+**Example**:
+```bash
+multicord doctor
+# Output:
+# [OK] Python Version: 3.11.5
+# [OK] discord.py: 2.3.2
+# [OK] API Connection: Online
+# [OK] Authentication: Valid
+```
+
+---
+
+## 🏗️ Architecture
+
+### Per-Bot Virtual Environments (v1.1+)
+
+MultiCord uses industry-standard isolated virtual environments for each bot:
 
 ```
 ~/.multicord/
-├── bots/
-│   ├── bot1/
-│   │   ├── bot.py
-│   │   ├── config.toml
-│   │   └── logs/
-│   └── bot2/
-│       ├── bot.py
-│       ├── config.toml
-│       └── logs/
-├── templates/
-│   ├── basic/
-│   ├── music/
-│   └── moderation/
-└── config.toml
+├── .venv/                     # CLI virtual environment (multicord only)
+├── pip-cache/                 # Shared pip cache (60-80% disk savings)
+└── bots/
+    ├── LinkGuard/
+    │   ├── .venv/             # Isolated LinkGuard dependencies
+    │   ├── bot.py
+    │   ├── requirements.txt
+    │   ├── config.toml
+    │   ├── logs/
+    │   ├── data/
+    │   └── cogs/
+    │       └── permissions/   # Enterprise permissions system
+    ├── MusicBot/
+    │   ├── .venv/             # Isolated MusicBot dependencies
+    │   ├── bot.py
+    │   ├── requirements.txt
+    │   └── config.toml
+    └── ModBot/
+        ├── .venv/             # Different discord.py version possible!
+        ├── bot.py
+        └── requirements.txt
 ```
 
-## 🔧 Configuration
+**Benefits**:
+- ✅ **No Dependency Conflicts**: Each bot can use different library versions
+- ✅ **Complete Isolation**: One bot's issues don't affect others
+- ✅ **Portable**: Move bot directories between systems easily
+- ✅ **Professional**: Industry-standard microservice architecture
 
-### Global Configuration
-`~/.multicord/config.toml`
-```toml
-[general]
-default_template = "basic"
-log_level = "INFO"
-max_bots = 10
+---
 
-[api]
-url = "https://api.multicord.io"
-timeout = 30
-```
+## 🎨 Available Templates
 
-### Bot Configuration
-`~/.multicord/bots/{bot-name}/config.toml`
-```toml
-[bot]
-token = "YOUR_DISCORD_BOT_TOKEN"
-prefix = "!"
-description = "My awesome bot"
+### Official Templates
 
-[resources]
-max_memory_mb = 512
-cpu_priority = "normal"
+- **basic** - Simple extensible bot with command handling and events
+  - Discord.py 2.3+ implementation
+  - Built-in logging and error handling
+  - TOML configuration
+  - Ready for extension
 
-[logging]
-level = "INFO"
-file = "bot.log"
-max_size_mb = 100
-```
+- **moderation** - Comprehensive moderation suite
+  - Kick, ban, timeout, warnings system
+  - Role management (add/remove roles)
+  - Message cleanup and purge
+  - Moderation logging
+  - Configurable permissions
 
-## 📋 Command Reference
+- **music** - Full-featured music playback
+  - YouTube integration with search
+  - Queue management (add, remove, skip, shuffle)
+  - Playback controls (play, pause, stop, volume)
+  - Now playing display
+  - Playlist support
 
-### Authentication Commands
-- `multicord auth login` - Login to cloud services
-- `multicord auth logout` - Logout from cloud
-- `multicord auth status` - Check authentication status
+- **business** - Professional bot with cog loading
+  - Automatic cog discovery and loading
+  - Structured logging and monitoring
+  - Enterprise-ready architecture
+  - Template for production deployments
 
-### Bot Management Commands
-- `multicord bot create <name>` - Create new bot
-- `multicord bot list` - List all bots
-- `multicord bot start <name>` - Start bot(s)
-- `multicord bot stop <name>` - Stop bot(s)
-- `multicord bot restart <name>` - Restart bot(s)
-- `multicord bot delete <name>` - Delete bot
-- `multicord bot status <name>` - Detailed bot status
-- `multicord bot logs <name>` - View bot logs
+### Community Templates
 
-### Template Commands
-- `multicord template list` - List templates
-- `multicord template install <url>` - Install template
-- `multicord template create <name>` - Create template
-- `multicord template delete <name>` - Delete template
-
-### System Commands
-- `multicord config show` - Show configuration
-- `multicord config set <key> <value>` - Set config value
-- `multicord doctor` - Check system health
-- `multicord version` - Show version
-
-## 🧩 Templates
-
-Templates provide pre-configured bot structures:
-
-### Available Templates
-- **basic** - Simple command bot
-- **music** - Music streaming bot
-- **moderation** - Server moderation bot
-- **economy** - Economy system bot
-- **tickets** - Support ticket bot
+Browse and contribute templates at:
+**https://github.com/HollowTheSilver/MultiCord-Templates**
 
 ### Creating Custom Templates
 
-1. Create your bot structure
-2. Add template metadata
-3. Install locally or share via URL
+```bash
+# Add your organization's templates
+multicord repo add my-org https://github.com/my-org/discord-templates.git
+
+# Use them
+multicord bot create my-bot --template internal-bot --repo my-org
+```
+
+---
+
+## 🧩 Cog System
+
+### What are Cogs?
+
+Cogs are modular, optional features you can install into any bot. They're like plugins that extend your bot's functionality without modifying the core bot code.
+
+### Available Cogs
+
+**permissions** - Enterprise-Grade Permission System
+- 9-level permission hierarchy (0-8)
+- Role-based and user-based permissions
+- Permission inheritance and overrides
+- Channel-specific permissions
+- Audit logging for all permission changes
+- ~2,500 lines of production code
+
+### Installing Cogs
 
 ```bash
-multicord template create my-template --from-bot my-bot
-multicord template install https://github.com/user/my-template
+# Browse available cogs
+multicord cog available
+
+# Install permissions system to your bot
+multicord cog add my-bot permissions
+
+# Cog dependencies automatically install into bot's venv
+# Restart bot to load the cog
+multicord bot restart my-bot
 ```
+
+---
+
+## 🔄 Template Updates
+
+### Checking for Updates
+
+```bash
+# Check single bot
+multicord bot check-updates my-bot
+
+# Check all bots
+multicord bot check-updates --all
+
+# Example output:
+# my-bot: music v1.0.0 → v1.2.0 available
+#   ✨ v1.2.0: Added playlist support
+#   🔧 v1.1.0: Fixed YouTube search
+```
+
+### Applying Updates
+
+Three update strategies available:
+
+1. **core-only** (safest): Update only bot.py and requirements.txt
+2. **safe-merge** (recommended): Update core + intelligently merge configs
+3. **full-replace** (aggressive): Replace all files except user data
+
+```bash
+# Safe merge (recommended)
+multicord bot update my-bot --strategy safe-merge
+
+# Dry run to preview changes
+multicord bot update my-bot --strategy safe-merge --dry-run
+
+# Update to specific version
+multicord bot update my-bot --version 1.2.0
+```
+
+### Rollback
+
+Automatic compressed backups (last 5 kept):
+
+```bash
+# List available backups
+multicord bot rollback my-bot --list
+
+# Rollback to previous version
+multicord bot rollback my-bot
+```
+
+---
+
+## 🔐 Authentication
+
+### Discord OAuth2 (Hybrid Flow)
+
+MultiCord uses Discord as the sole authentication provider:
+
+- **Browser Flow**: Opens Discord authorization in your browser (desktop)
+- **Device Flow**: Shows code for manual entry (SSH, Docker, servers)
+- **Smart Detection**: Automatically chooses best method for your environment
+
+```bash
+# Desktop: Opens browser automatically
+multicord auth login
+
+# Server/SSH: Shows device code for manual entry
+# No DISPLAY: MultiCord auth at https://multicord.io/device
+# Enter code: ABC-123-DEF
+```
+
+**Why Discord-Only?**
+- Every user already has Discord (managing Discord bots!)
+- Zero friction onboarding
+- Guild access for bot deployment
+- Trusted provider with 2FA support
+
+---
 
 ## 🔒 Security
 
-- **Token Storage**: Secure storage using system keyring
-- **Process Isolation**: Each bot runs in isolated environment
-- **Resource Limits**: Configurable CPU and memory limits
-- **Audit Logging**: Track all bot operations
-- **No Token Exposure**: Tokens never shown in logs or CLI output
+### Token Storage
+- Secure storage using system keyring library
+- Tokens encrypted at rest
+- Never shown in logs or CLI output
+- Automatic token refresh
+
+### Process Isolation
+- Each bot runs in isolated process with dedicated resources
+- Per-bot virtual environments prevent dependency conflicts
+- Configurable CPU and memory limits (coming soon)
+
+### API Communication
+- All API calls use HTTPS with SSL verification
+- JWT tokens with refresh token rotation
+- Rate limiting enforced server-side
+- Audit logging for all operations
+
+---
 
 ## 🧪 Development
 
@@ -216,7 +623,11 @@ multicord template install https://github.com/user/my-template
 git clone https://github.com/HollowTheSilver/MultiCord.git
 cd CLI
 
-# Create virtual environment
+# Create virtual environment (Windows)
+python -m venv .venv
+.venv\Scripts\activate
+
+# Create virtual environment (Linux/macOS)
 python -m venv .venv
 source .venv/bin/activate
 
@@ -228,43 +639,107 @@ pip install -r requirements-dev.txt
 pytest tests/
 ```
 
-### Running Tests
+### Cross-Platform Support
 
-```bash
-# Unit tests
-pytest tests/unit
+MultiCord fully supports:
+- ✅ **Windows** (10, 11) - Primary development platform
+- ✅ **Linux** (Ubuntu, Debian, Fedora, Arch)
+- ✅ **macOS** (10.15+)
 
-# Integration tests
-pytest tests/integration
+Platform-specific handling:
+- Venv paths (Scripts vs bin)
+- Process creation flags
+- Path separators
+- Command compatibility
 
-# With coverage
-pytest --cov=multicord --cov-report=html
-```
+---
+
+## 🐛 Troubleshooting
+
+### Bot Won't Start
+
+**Error**: `Bot venv invalid`
+**Solution**: Check venv with `multicord venv info <bot>`
+**Fix**: `multicord venv clean <bot>` to recreate
+
+### Dependency Conflicts
+
+**Problem**: Different bots need different library versions
+**Solution**: Per-bot venvs solve this! Each bot has isolated dependencies.
+**Verify**: `multicord venv info <bot>` shows bot-specific packages
+
+### Cloud Sync Fails
+
+**Error**: API connection timeout
+**Solution**: Check cache status with `multicord cache status`
+**Offline Mode**: Local operations work without internet
+**Fix**: `multicord cache refresh` when connection restored
+
+### Template Not Found
+
+**Error**: Template 'xyz' not found
+**Solution**: Update repositories with `multicord repo update --all`
+**Check**: `multicord template list` to see available templates
+**Custom**: Add repository with `multicord repo add`
+
+### Port Conflicts
+
+**Problem**: Bot can't bind to port
+**Solution**: MultiCord automatically assigns unique ports
+**Check**: `multicord bot status` shows assigned ports
+**Manual**: Edit config.toml if needed
+
+### Common Issues
+
+| Issue | Command | Description |
+|-------|---------|-------------|
+| Check system health | `multicord doctor` | Verifies Python, dependencies, API |
+| View bot logs | `multicord bot logs <bot> --follow` | Real-time log streaming |
+| Validate venv | `multicord venv info <bot>` | Check venv status and packages |
+| Clear API cache | `multicord cache clear` | Reset offline cache |
+| Update repos | `multicord repo update --all` | Sync template repositories |
+
+### Getting Help
+
+- **Documentation**: Full docs at https://multicord.io/docs (coming soon)
+- **Issue Tracker**: https://github.com/HollowTheSilver/MultiCord/issues
+- **Discussions**: https://github.com/HollowTheSilver/MultiCord/discussions
+
+---
 
 ## 🤝 Contributing
 
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+We welcome contributions! Areas for contribution:
 
-### Areas for Contribution
-- New bot templates
-- Additional CLI commands
-- Documentation improvements
-- Bug fixes
-- Test coverage
+- **New Templates**: Share your bot templates
+- **Cogs**: Create modular features for bots
+- **CLI Features**: Enhance command functionality
+- **Documentation**: Improve docs and examples
+- **Bug Fixes**: Fix issues and edge cases
+- **Tests**: Increase test coverage
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+**Code of Conduct**: Be respectful, inclusive, and professional.
+
+---
 
 ## 📄 License
 
 MIT License - see [LICENSE](LICENSE) file for details.
 
+---
+
 ## 🔗 Links
 
-- **GitHub**: [https://github.com/HollowTheSilver/MultiCord](https://github.com/HollowTheSilver/MultiCord)
-- **PyPI**: Coming soon
-
-## 💬 Support
-
-- **Issues**: [GitHub Issues](https://github.com/HollowTheSilver/MultiCord/issues)
+- **GitHub**: https://github.com/HollowTheSilver/MultiCord
+- **Templates**: https://github.com/HollowTheSilver/MultiCord-Templates
+- **PyPI**: Coming soon - `pip install multicord`
+- **API Status**: https://api.multicord.io/health
+- **Issue Tracker**: https://github.com/HollowTheSilver/MultiCord/issues
 
 ---
 
-**Made with ❤️ by the MultiCord Team**
+**Made with ❤️ for the Discord bot community**
+
+*MultiCord CLI v1.1.0 • November 2025*
