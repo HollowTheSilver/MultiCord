@@ -71,27 +71,33 @@ def status():
 @auth.command()
 @click.option('--api-url', default=None, help='Custom API URL')
 @click.option('--no-browser', is_flag=True, help='Use device flow for browserless environments')
+@click.option('--method', type=click.Choice(['auto', 'device', 'browser']), default='auto',
+              help='Authentication method: auto (smart detection), device (code flow), browser (callback flow)')
 @handle_error
-def login(api_url, no_browser):
+def login(api_url, no_browser, method):
     """
     Login to MultiCord cloud services.
 
-    Uses Discord OAuth2 with smart authentication:
-    - Browser flow when available (default)
-    - Device flow for SSH/Docker/EC2 (auto-detected or --no-browser)
+    Uses Discord OAuth2 with environment-aware authentication:
+    - Localhost API: Device flow
+    - Remote API with browser: Browser callback flow
+    - Remote API without browser: Device flow
+    - Manual override available with --method flag
+
+    Examples:
+        multicord auth login                    # Auto-detect (recommended)
+        multicord auth login --method device    # Force device flow
+        multicord auth login --method browser   # Force browser callback
     """
     from multicord.auth import authenticate
 
-    # Use default API URL if not provided
     api_url = api_url or "http://localhost:8000"
 
-    # Check if API is reachable
     client = APIClient(api_url=api_url)
     if not client.is_online():
         raise NetworkError("Cannot connect to MultiCord API. Please check your internet connection.")
 
-    # Use hybrid authentication
-    success = authenticate(no_browser=no_browser, api_url=api_url)
+    success = authenticate(no_browser=no_browser, api_url=api_url, method=method if method != 'auto' else None)
 
     if success:
         display.success("Successfully authenticated!")
