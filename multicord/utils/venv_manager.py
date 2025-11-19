@@ -60,18 +60,20 @@ class VenvManager:
                 return False, f"Failed to create venv: Python executable not found"
 
             # Upgrade pip, setuptools, and wheel
+            # Stream output so users see progress
             subprocess.run(
                 [str(venv_python), "-m", "pip", "install", "--upgrade",
                  "pip", "setuptools", "wheel"],
                 check=True,
-                capture_output=True,
-                text=True
+                timeout=300  # 5 minute safety timeout
             )
 
             return True, f"Created virtual environment at {venv_dir}"
 
-        except subprocess.CalledProcessError as e:
-            return False, f"Failed to upgrade pip: {e.stderr}"
+        except subprocess.TimeoutExpired:
+            return False, "Pip upgrade timed out after 5 minutes. Check network connection."
+        except subprocess.CalledProcessError:
+            return False, "Failed to upgrade pip. Check output above."
         except Exception as e:
             return False, f"Failed to create virtual environment: {str(e)}"
 
@@ -187,18 +189,20 @@ class VenvManager:
                 cmd.append("--upgrade")
 
             # Install dependencies
+            # Stream output so users see progress
             result = subprocess.run(
                 cmd,
                 check=True,
-                capture_output=True,
-                text=True,
+                timeout=300,  # 5 minute safety timeout
                 cwd=bot_dir
             )
 
             return True, "Successfully installed requirements"
 
-        except subprocess.CalledProcessError as e:
-            return False, f"Failed to install requirements: {e.stderr}"
+        except subprocess.TimeoutExpired:
+            return False, "Installation timed out after 5 minutes. Check network connection."
+        except subprocess.CalledProcessError:
+            return False, "Failed to install requirements. Check pip output above."
         except Exception as e:
             return False, f"Installation failed: {str(e)}"
 
@@ -273,18 +277,20 @@ class VenvManager:
                 return True, "No packages to update"
 
             # Update all packages
+            # Stream output so users see progress
             subprocess.run(
                 [str(venv_python), "-m", "pip", "install", "--upgrade",
                  "--cache-dir", str(self.pip_cache_dir)] + package_names,
                 check=True,
-                capture_output=True,
-                text=True
+                timeout=300  # 5 minute safety timeout
             )
 
             return True, f"Updated {len(package_names)} packages"
 
-        except subprocess.CalledProcessError as e:
-            return False, f"Failed to update packages: {e.stderr}"
+        except subprocess.TimeoutExpired:
+            return False, "Package update timed out after 5 minutes. Check network connection."
+        except subprocess.CalledProcessError:
+            return False, "Failed to update packages. Check pip output above."
         except json.JSONDecodeError:
             return False, "Failed to parse package list"
         except Exception as e:

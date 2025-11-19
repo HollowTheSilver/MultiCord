@@ -12,6 +12,8 @@ from typing import Dict, List, Optional, Any, Tuple
 from datetime import datetime
 from dataclasses import dataclass, asdict
 
+from multicord.utils.git_operations import GitRepository, GitOperationConfig, GitOperationError
+
 
 @dataclass
 class RepositoryConfig:
@@ -276,7 +278,14 @@ class TemplateRepository:
 
     def clone_repository(self, name: str, force_update: bool = False) -> Path:
         """
-        Clone or update a template repository.
+        Clone or update a template repository using professional Git operations.
+
+        Features:
+        - Real-time progress streaming (users see Git output)
+        - Configurable timeouts (no infinite hangs)
+        - Retry with exponential backoff (handles network issues)
+        - Smart caching (skips update if recently synced)
+        - Offline fallback (uses cache when network fails)
 
         Args:
             name: Repository identifier
@@ -284,6 +293,10 @@ class TemplateRepository:
 
         Returns:
             Path to repository directory
+
+        Raises:
+            ValueError: If repository not found
+            GitOperationError: If Git operation fails and no cache available
         """
         if name not in self.repositories:
             raise ValueError(f"Repository '{name}' not found")
@@ -294,38 +307,22 @@ class TemplateRepository:
         branch = repo_config.get('branch', 'main')
 
         try:
-            if repo_path.exists():
-                # Update existing repository
-                subprocess.run(
-                    ["git", "checkout", branch],
-                    cwd=repo_path,
-                    check=True,
-                    capture_output=True,
-                    text=True
-                )
-                subprocess.run(
-                    ["git", "pull"],
-                    cwd=repo_path,
-                    check=True,
-                    capture_output=True,
-                    text=True
-                )
-            else:
-                # Clone new repository
-                subprocess.run(
-                    ["git", "clone", "-b", branch, repo_url, str(repo_path)],
-                    check=True,
-                    capture_output=True,
-                    text=True
-                )
+            # Create professional Git repository manager
+            config = GitOperationConfig.from_env()  # Load from environment variables
+            git_repo = GitRepository(repo_url, repo_path, branch, config)
+
+            # Ensure repository exists and is up-to-date
+            # This handles: clone (if not exists), update (if stale), or cache (if fresh)
+            git_repo.ensure_repository(force_update=force_update)
 
             # Update last_synced timestamp
             self.update_repository_config(name, last_synced=datetime.now().isoformat())
 
             return repo_path
 
-        except subprocess.CalledProcessError as e:
-            raise RuntimeError(f"Failed to clone/update repository '{name}': {e.stderr}")
+        except GitOperationError as e:
+            # Re-raise with repository context
+            raise RuntimeError(f"Failed to clone/update repository '{name}': {e.format_user_message()}")
 
     # // ========================================( Multi-Repo Template Discovery )======================================== // #
 
