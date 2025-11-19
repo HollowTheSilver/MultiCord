@@ -389,6 +389,21 @@ class TemplateRepository:
             repo_path = self.clone_repository(repo_name)
         return repo_path / template_name
 
+    def get_repository_path(self, repo_name: str = "official") -> Path:
+        """
+        Get path to cloned repository directory.
+
+        Args:
+            repo_name: Repository name (default: "official")
+
+        Returns:
+            Path to the repository directory
+        """
+        repo_path = self.repos_dir / repo_name
+        if not repo_path.exists():
+            repo_path = self.clone_repository(repo_name)
+        return repo_path
+
     # // ========================================( Single-Repo Methods )======================================== // #
 
     def get_manifest(self, repo_name: str = "official") -> Dict[str, Any]:

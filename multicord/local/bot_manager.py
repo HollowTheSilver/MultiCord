@@ -3,6 +3,7 @@ Local bot process management with advanced orchestration.
 """
 
 import json
+import shutil
 import toml
 from pathlib import Path
 from typing import Dict, List, Optional, Any
@@ -13,6 +14,7 @@ from .health_monitor import HealthMonitor
 from multicord.utils.sync import ConfigSync
 from multicord.utils.template_repository import TemplateRepository
 from multicord.utils.venv_manager import VenvManager
+from multicord.utils.cog_repository import CogRepository
 
 
 class BotManager:
@@ -125,6 +127,14 @@ class BotManager:
         try:
             self.template_repo.install_template(template, bot_path, repo)
 
+            # Auto-create .env file from .env.example (v2.0.0+ templates)
+            env_example = bot_path / ".env.example"
+            env_file = bot_path / ".env"
+            if env_example.exists() and not env_file.exists():
+                shutil.copy(env_example, env_file)
+                print(f"✓ Created .env file from template")
+                print(f"⚠ IMPORTANT: Add your DISCORD_TOKEN to {env_file.name} before starting the bot")
+
             # Create isolated virtual environment for bot
             venv_success, venv_msg = self.venv_manager.create_venv(bot_path)
             if not venv_success:
@@ -149,6 +159,32 @@ class BotManager:
             with open(meta_file, 'w', encoding='utf-8') as f:
                 json.dump(meta_data, f, indent=2)
 
+            # Auto-install cogs if specified in template manifest
+            auto_install_cogs = template_info.get("auto_install_cogs", [])
+            if auto_install_cogs:
+                print(f"\nAuto-installing cogs for '{template}' template...")
+                template_repo_path = self.template_repo.get_repository_path(repo or "official")
+                cog_repo = CogRepository(template_repo_path)
+
+                for cog_spec in auto_install_cogs:
+                    cog_id = cog_spec.get("id")
+                    required = cog_spec.get("required", True)
+                    reason = cog_spec.get("reason", "")
+
+                    try:
+                        print(f"  Installing cog '{cog_id}'... ", end="", flush=True)
+                        cog_repo.install_cog(bot_path, cog_id)
+                        print(f"✓ Installed ({reason})")
+                    except Exception as cog_error:
+                        if required:
+                            # Required cog failed - abort bot creation
+                            raise RuntimeError(
+                                f"Failed to install required cog '{cog_id}': {cog_error}"
+                            )
+                        else:
+                            # Optional cog failed - continue with warning
+                            print(f"⚠ Failed (optional): {cog_error}")
+
             # Create logs directory
             (bot_path / "logs").mkdir(exist_ok=True)
 
@@ -160,7 +196,6 @@ class BotManager:
         except Exception as e:
             # Clean up on failure
             if bot_path.exists():
-                import shutil
                 shutil.rmtree(bot_path)
             raise RuntimeError(f"Failed to create bot from template: {e}")
     
