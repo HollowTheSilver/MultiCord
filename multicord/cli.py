@@ -1715,11 +1715,18 @@ def list(bot_name):
 @cog.command()
 @click.argument('bot_name')
 @click.argument('cog_name')
-def add(bot_name, cog_name):
+@click.option('--offline', is_flag=True, help='Use cached templates without network updates')
+@click.option('--force-update', is_flag=True, help='Force update template repository before installing')
+def add(bot_name, cog_name, offline, force_update):
     """Add a cog to an existing bot."""
+    import os
     from multicord.local.bot_manager import BotManager
     from multicord.utils.template_repository import TemplateRepository
     from multicord.utils.cog_repository import CogRepository
+
+    # Set environment variables for Git operations
+    if offline:
+        os.environ['MULTICORD_OFFLINE'] = '1'
 
     manager = BotManager()
     bot_path = manager.bots_dir / bot_name
@@ -1733,7 +1740,7 @@ def add(bot_name, cog_name):
     try:
         # Get template repository
         template_repo = TemplateRepository()
-        repo_path = template_repo.clone_repository('official')
+        repo_path = template_repo.clone_repository('official', force_update=force_update)
 
         # Get cog repository
         cog_repo = CogRepository(repo_path)

@@ -240,17 +240,22 @@ class CogRepository:
 
         try:
             # Install cog requirements into bot's isolated venv
+            # Stream pip output in real-time so users see progress
             subprocess.run(
                 [str(venv_python), "-m", "pip", "install",
                  "-r", str(requirements_file),
                  "--cache-dir", str(pip_cache_dir)],
                 check=True,
-                capture_output=True,
-                text=True,
+                timeout=300,  # 5 minute safety timeout
                 cwd=bot_path
             )
-        except subprocess.CalledProcessError as e:
-            raise RuntimeError(f"Failed to install cog requirements: {e.stderr}")
+        except subprocess.TimeoutExpired:
+            raise RuntimeError(
+                "Package installation timed out after 5 minutes. "
+                f"Check network connection and try: multicord venv clean {bot_path.name}"
+            )
+        except subprocess.CalledProcessError:
+            raise RuntimeError("Failed to install cog requirements. Check pip output above.")
 
     def _update_bot_config(self, bot_path: Path, cog_name: str, action: str) -> None:
         """
