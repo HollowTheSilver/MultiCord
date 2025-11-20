@@ -589,6 +589,102 @@ def logs(name, lines, follow):
         display.error(f"Failed to get logs: {e}")
 
 
+@bot.command('set-token')
+@click.argument('name')
+@click.option('--token', prompt='Discord bot token', hide_input=True,
+              help='Discord bot token to store securely')
+def set_token(name, token):
+    """Set Discord bot token securely.
+
+    Stores the token using Windows Credential Manager (or encrypted file fallback).
+    Your token will be encrypted and never stored in plain text.
+
+    Examples:
+        multicord bot set-token my-bot              # Interactive prompt (recommended)
+        multicord bot set-token my-bot --token xxx  # Provide token directly
+    """
+    manager = BotManager()
+
+    try:
+        manager.set_bot_token(name, token)
+        storage_method = manager.get_token_storage_method()
+        display.success(f"Token stored securely using: {storage_method}")
+        display.info("Old .env file can be safely deleted (token migrated)")
+        display.info(f"Start bot with: multicord bot start {name}")
+    except ValueError as e:
+        display.error(str(e))
+        sys.exit(1)
+    except Exception as e:
+        display.error(f"Failed to store token: {e}")
+        sys.exit(1)
+
+
+@bot.command('migrate-tokens')
+@click.option('--all', 'migrate_all', is_flag=True, help='Migrate tokens for all bots')
+@click.argument('names', nargs=-1)
+def migrate_tokens(migrate_all, names):
+    """Migrate Discord tokens from .env files to secure storage.
+
+    Scans .env files for DISCORD_TOKEN and migrates them to encrypted storage.
+    Original .env files are backed up as .env.backup.
+
+    Examples:
+        multicord bot migrate-tokens my-bot           # Migrate one bot
+        multicord bot migrate-tokens bot1 bot2 bot3   # Migrate multiple bots
+        multicord bot migrate-tokens --all            # Migrate all bots
+    """
+    manager = BotManager()
+
+    # Determine which bots to migrate
+    if migrate_all:
+        # Get all bots
+        all_bots = manager.list_bots()
+        bot_names = [bot['name'] for bot in all_bots]
+        if not bot_names:
+            display.warning("No bots found to migrate")
+            return
+        display.info(f"Migrating tokens for {len(bot_names)} bots...")
+    elif names:
+        bot_names = names
+    else:
+        display.error("Please specify bot name(s) or use --all flag")
+        display.info("Examples:")
+        display.info("  multicord bot migrate-tokens my-bot")
+        display.info("  multicord bot migrate-tokens --all")
+        sys.exit(1)
+
+    # Migrate each bot
+    migrated = 0
+    skipped = 0
+    failed = 0
+
+    for bot_name in bot_names:
+        try:
+            success, message = manager.migrate_bot_token(bot_name)
+            if success:
+                display.success(f"{bot_name}: {message}")
+                migrated += 1
+            else:
+                display.warning(f"{bot_name}: {message}")
+                skipped += 1
+        except Exception as e:
+            display.error(f"{bot_name}: Failed - {e}")
+            failed += 1
+
+    # Summary
+    console.print()
+    display.info(f"Migration complete:")
+    display.info(f"  Migrated: {migrated}")
+    if skipped:
+        display.info(f"  Skipped: {skipped} (already migrated or no valid token)")
+    if failed:
+        display.error(f"  Failed: {failed}")
+
+    if migrated > 0:
+        storage_method = manager.get_token_storage_method()
+        display.success(f"All tokens now stored securely using: {storage_method}")
+
+
 @bot.command()
 @click.argument('name')
 @click.option('--token', help='Bot token (will prompt if not provided)')

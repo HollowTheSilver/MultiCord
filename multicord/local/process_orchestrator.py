@@ -19,6 +19,7 @@ from uuid import uuid4
 import psutil
 
 from multicord.utils.venv_manager import VenvManager
+from multicord.utils.token_manager import TokenManager
 
 try:
     import fcntl
@@ -272,7 +273,7 @@ class PortManager:
 class ProcessOrchestrator:
     """Orchestrates bot process lifecycle with health monitoring."""
     
-    def __init__(self, 
+    def __init__(self,
                  bots_dir: Optional[Path] = None,
                  logs_dir: Optional[Path] = None):
         """Initialize process orchestrator."""
@@ -283,6 +284,7 @@ class ProcessOrchestrator:
         self.registry = ProcessRegistry()
         self.port_manager = PortManager()
         self.venv_manager = VenvManager(bots_dir=self.bots_dir)
+        self.token_manager = TokenManager(config_dir=Path.home() / ".multicord")
         self.processes: Dict[str, subprocess.Popen] = {}
         self.logger = logging.getLogger(__name__)
     
@@ -345,7 +347,13 @@ class ProcessOrchestrator:
             venv_scripts = venv_dir / "bin"
         env['PATH'] = f"{venv_scripts}{os.pathsep}{env.get('PATH', '')}"
 
-        # Inject custom environment variables if provided
+        # Inject Discord token from secure storage (if available)
+        token = self.token_manager.get_token(bot_name)
+        if token:
+            env['DISCORD_TOKEN'] = token
+        # Note: If no token in secure storage, bot will attempt to load from .env file
+
+        # Inject custom environment variables if provided (these can override token)
         if env_vars:
             env.update(env_vars)
         

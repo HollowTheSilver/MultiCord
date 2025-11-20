@@ -15,6 +15,7 @@ from multicord.utils.sync import ConfigSync
 from multicord.utils.template_repository import TemplateRepository
 from multicord.utils.venv_manager import VenvManager
 from multicord.utils.cog_repository import CogRepository
+from multicord.utils.token_manager import TokenManager
 
 
 class BotManager:
@@ -38,6 +39,9 @@ class BotManager:
 
         # Initialize virtual environment manager
         self.venv_manager = VenvManager(bots_dir=self.bots_dir)
+
+        # Initialize secure token manager
+        self.token_manager = TokenManager(config_dir=self.config_dir)
     
     def list_bots(self, status: Optional[str] = None) -> List[Dict[str, Any]]:
         """List all local bots with orchestrator status."""
@@ -474,3 +478,95 @@ class BotManager:
             return None
 
         return self.venv_manager.get_venv_info(bot_path)
+
+    def set_bot_token(self, bot_name: str, token: str) -> bool:
+        """
+        Store Discord bot token securely.
+
+        Args:
+            bot_name: Name of the bot
+            token: Discord bot token
+
+        Returns:
+            True if token stored successfully
+
+        Raises:
+            ValueError: If bot doesn't exist or token format is invalid
+        """
+        bot_path = self.bots_dir / bot_name
+        if not bot_path.exists():
+            raise ValueError(f"Bot '{bot_name}' does not exist")
+
+        # Store token using TokenManager (validates format automatically)
+        return self.token_manager.store_token(bot_name, token)
+
+    def get_bot_token(self, bot_name: str) -> Optional[str]:
+        """
+        Retrieve Discord bot token from secure storage.
+
+        Automatically migrates from .env file if token found there.
+
+        Args:
+            bot_name: Name of the bot
+
+        Returns:
+            Discord token if found, None otherwise
+        """
+        # Try secure storage first
+        token = self.token_manager.get_token(bot_name)
+
+        # If not in secure storage, check .env and auto-migrate
+        if not token:
+            bot_path = self.bots_dir / bot_name
+            if bot_path.exists():
+                if self.token_manager.migrate_from_env(bot_path, bot_name):
+                    # Migration successful, retrieve the migrated token
+                    token = self.token_manager.get_token(bot_name)
+
+        return token
+
+    def delete_bot_token(self, bot_name: str) -> bool:
+        """
+        Delete Discord bot token from secure storage.
+
+        Args:
+            bot_name: Name of the bot
+
+        Returns:
+            True if token deleted successfully
+        """
+        return self.token_manager.delete_token(bot_name)
+
+    def migrate_bot_token(self, bot_name: str) -> tuple[bool, str]:
+        """
+        Manually migrate bot token from .env to secure storage.
+
+        Args:
+            bot_name: Name of the bot
+
+        Returns:
+            Tuple of (success, message)
+        """
+        bot_path = self.bots_dir / bot_name
+        if not bot_path.exists():
+            return False, f"Bot '{bot_name}' does not exist"
+
+        # Check if already in secure storage
+        if self.token_manager.get_token(bot_name):
+            return False, "Token already in secure storage"
+
+        # Attempt migration
+        if self.token_manager.migrate_from_env(bot_path, bot_name):
+            storage_method = self.token_manager.get_storage_method()
+            return True, f"Token migrated to {storage_method}"
+        else:
+            return False, "No valid token found in .env file"
+
+    def get_token_storage_method(self) -> str:
+        """
+        Get description of current token storage method.
+
+        Returns:
+            Human-readable description (e.g., "Windows Credential Manager")
+        """
+        return self.token_manager.get_storage_method()

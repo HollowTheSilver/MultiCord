@@ -12,6 +12,7 @@ pydantic>=2.5.0
 
 # Secure Token Storage
 keyring>=24.0.0
+cryptography>=41.0.0  # For encrypted file fallback
 
 # Beautiful CLI Output
 rich>=13.0.0
