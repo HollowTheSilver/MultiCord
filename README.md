@@ -1,6 +1,6 @@
 # MultiCord CLI
 
-**Version 1.1.0** | Run Multiple Discord Bots Like a Pro
+**Version 1.2.0** | Run Multiple Discord Bots Like a Pro
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
@@ -48,11 +48,18 @@ multicord bot status  # Real-time monitoring with health metrics
   - Real-time health monitoring with CPU, memory, and uptime tracking
   - Graceful shutdown handling with timeout management
 
-- **Modular Cog System** ⭐ NEW in v1.1
+- **Modular Cog System** ⭐ ENHANCED in v1.2
   - Install optional features as modular cogs
   - Enterprise-grade permissions system (9-level hierarchy)
   - Repository-based cog management
-  - Automatic dependency installation
+  - **NEW: Automatic cog dependency resolution**
+  - **NEW: Circular dependency detection**
+
+- **Token Management** ⭐ NEW in v1.2
+  - Dedicated `multicord token` command group
+  - Secure storage with Windows Credential Manager (or encrypted file fallback)
+  - View API auth status alongside bot tokens
+  - Masked token display for security
 
 - **Template Update Ecosystem** ⭐ NEW in v1.1
   - Multi-repository support with priority system
@@ -157,7 +164,9 @@ Complete bot lifecycle management with health monitoring.
 #### Bot Lifecycle
 - `multicord bot create <name> --template <template>` - Create new bot from template
   - **Flags**: `--template` (required), `--repo` (custom repository)
-  - **Automatic**: Creates isolated venv, installs requirements.txt
+  - **NEW in v1.2**: `--token` (prompt for Discord token after creation)
+  - **NEW in v1.2**: `--follow` (start bot and follow logs immediately)
+  - **Automatic**: Creates isolated venv, installs requirements.txt, auto-installs cogs
 
 - `multicord bot delete <name>` - Delete a bot (with confirmation)
 
@@ -252,9 +261,43 @@ multicord venv update my-bot
 
 ---
 
-### 🧩 Cog Management (`multicord cog`) - 5 commands ⭐ NEW in v1.1
+### 🔑 Token Management (`multicord token`) - 4 commands ⭐ NEW in v1.2
 
-Install and manage modular bot features (cogs).
+Securely manage Discord bot tokens and API credentials.
+
+- `multicord token list [bot]` - View all stored credentials
+  - Shows API authentication status (Discord OAuth2)
+  - Lists all bot tokens with storage method
+  - **Flags**: `--all` (include bots without tokens)
+
+- `multicord token set <bot>` - Store bot token securely
+  - Uses Windows Credential Manager (or encrypted file fallback)
+  - **Flags**: `--token <value>` (provide directly, not recommended)
+
+- `multicord token delete <bot>` - Remove stored token
+  - **Flags**: `-y` (skip confirmation)
+
+- `multicord token show <bot>` - Display token details
+  - Masked by default for security
+  - **Flags**: `--unmask` (show full token)
+
+**Examples**:
+```bash
+# View all credentials
+multicord token list
+
+# Store token securely (recommended)
+multicord token set my-bot  # Interactive prompt
+
+# Show masked token
+multicord token show my-bot
+```
+
+---
+
+### 🧩 Cog Management (`multicord cog`) - 5 commands ⭐ ENHANCED in v1.2
+
+Install and manage modular bot features (cogs) with dependency resolution.
 
 - `multicord cog available` - List all available cogs from repository
   - **Display**: Grouped by category, shows version, author, featured cogs
@@ -262,7 +305,9 @@ Install and manage modular bot features (cogs).
 - `multicord cog list <bot>` - Show installed cogs for a bot
 
 - `multicord cog add <bot> <cog>` - Install cog to bot
-  - **Automatic**: Copies cog files, installs dependencies into bot's venv
+  - **NEW in v1.2**: Automatic dependency resolution
+  - **NEW in v1.2**: Circular dependency detection
+  - **Flags**: `--no-deps` (skip dependency installation)
 
 - `multicord cog remove <bot> <cog>` - Uninstall cog from bot
   - **Note**: Dependencies not automatically removed
@@ -275,8 +320,9 @@ Install and manage modular bot features (cogs).
 # Browse available cogs
 multicord cog available
 
-# Install permissions system
-multicord cog add my-bot permissions
+# Install cog with automatic dependencies
+multicord cog add my-bot moderation-advanced
+# → Checks dependencies, prompts if missing, installs in order
 
 # List installed cogs
 multicord cog list my-bot

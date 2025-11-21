@@ -259,14 +259,27 @@ def list(local, cloud, sync, status):
 @click.option('--template', default='basic', help='Bot template to use')
 @click.option('--cloud', is_flag=True, help='Create in cloud instead of locally')
 @click.option('--repo', help='Specific repository to use (default: auto-detect by priority)')
-def create(name, template, cloud, repo):
-    """Create a new bot from template."""
+@click.option('--token', 'set_token_flag', is_flag=True, help='Prompt for Discord token after creation')
+@click.option('--follow', 'follow_flag', is_flag=True, help='Start bot and follow logs after creation')
+def create(name, template, cloud, repo, set_token_flag, follow_flag):
+    """Create a new bot from template.
+
+    Examples:
+        multicord bot create my-bot                      # Basic creation
+        multicord bot create my-bot --template moderation  # With template
+        multicord bot create my-bot --token              # Create and set token
+        multicord bot create my-bot --token --follow     # Complete setup flow
+    """
+    import getpass
 
     if cloud:
         client = APIClient()
         if not client.is_authenticated():
             display.error("Please login first: multicord auth login")
             sys.exit(1)
+
+        if set_token_flag or follow_flag:
+            display.warning("--token and --follow flags are only supported for local bots")
 
         display.info(f"Creating cloud bot '{name}' from template '{template}'...")
         try:
@@ -301,7 +314,56 @@ def create(name, template, cloud, repo):
 
             console.print(f"\n[dim]Location:[/] {bot_path}")
             console.print(f"[dim]Config:[/] {bot_path}/config.toml")
-            console.print(f"\n[yellow]Start with:[/] multicord bot start {name}")
+
+            # Handle --token flag: prompt for and store Discord token
+            token_stored = False
+            if set_token_flag:
+                console.print()
+                try:
+                    token_value = getpass.getpass('Discord bot token: ')
+                    if token_value:
+                        from multicord.utils.token_manager import TokenManager
+                        token_mgr = TokenManager()
+                        token_mgr.store_token(name, token_value)
+                        storage_method = token_mgr.get_storage_method()
+                        display.success(f"Token stored securely ({storage_method})")
+                        token_stored = True
+                    else:
+                        display.warning("No token provided, skipping token storage")
+                except (KeyboardInterrupt, EOFError):
+                    console.print("\n[yellow]Token input cancelled[/]")
+                except Exception as e:
+                    display.error(f"Failed to store token: {e}")
+
+            # Handle --follow flag: start bot and follow logs
+            if follow_flag:
+                if not token_stored and set_token_flag:
+                    display.warning("Bot not started (no token stored)")
+                    console.print(f"\n[yellow]Start manually:[/] multicord bot start {name}")
+                else:
+                    console.print()
+                    display.info(f"Starting bot '{name}'...")
+                    try:
+                        pid = manager.start_bot(name)
+                        status = manager.get_bot_status(name)
+                        if status and status.get('port'):
+                            display.success(f"Bot '{name}' started with PID {pid} on port {status['port']}")
+                        else:
+                            display.success(f"Bot '{name}' started with PID {pid}")
+
+                        console.print()
+                        display.info(f"Following logs for '{name}' (Ctrl+C to stop)...")
+                        manager.follow_logs(name)
+                    except Exception as e:
+                        display.error(f"Failed to start bot: {e}")
+                        sys.exit(1)
+            elif not set_token_flag:
+                # Only show start hint if not using --token or --follow
+                console.print(f"\n[yellow]Start with:[/] multicord bot start {name}")
+            elif token_stored:
+                # Token was stored but --follow not used
+                console.print(f"\n[yellow]Start with:[/] multicord bot start {name}")
+
         except Exception as e:
             display.error(f"Failed to create bot: {e}")
             sys.exit(1)
@@ -591,7 +653,7 @@ def logs(name, lines, follow):
 
 @bot.command('set-token')
 @click.argument('name')
-@click.option('--token', prompt='Discord bot token', hide_input=True,
+@click.option('--token', default=None,
               help='Discord bot token to store securely')
 def set_token(name, token):
     """Set Discord bot token securely.
@@ -603,7 +665,20 @@ def set_token(name, token):
         multicord bot set-token my-bot              # Interactive prompt (recommended)
         multicord bot set-token my-bot --token xxx  # Provide token directly
     """
+    import getpass
+
     manager = BotManager()
+
+    # If token not provided via flag, prompt interactively
+    if not token:
+        try:
+            token = getpass.getpass('Discord bot token: ')
+            if not token:
+                display.error("Token cannot be empty")
+                sys.exit(1)
+        except (KeyboardInterrupt, EOFError):
+            console.print("\n[yellow]Cancelled[/]")
+            sys.exit(0)
 
     try:
         manager.set_bot_token(name, token)
@@ -1813,12 +1888,17 @@ def list(bot_name):
 @click.argument('cog_name')
 @click.option('--offline', is_flag=True, help='Use cached templates without network updates')
 @click.option('--force-update', is_flag=True, help='Force update template repository before installing')
-def add(bot_name, cog_name, offline, force_update):
-    """Add a cog to an existing bot."""
+@click.option('--no-deps', is_flag=True, help='Skip automatic dependency installation')
+def add(bot_name, cog_name, offline, force_update, no_deps):
+    """Add a cog to an existing bot.
+
+    Automatically resolves and installs cog dependencies.
+    Use --no-deps to skip dependency installation (not recommended).
+    """
     import os
     from multicord.local.bot_manager import BotManager
     from multicord.utils.template_repository import TemplateRepository
-    from multicord.utils.cog_repository import CogRepository
+    from multicord.utils.cog_repository import CogRepository, CircularDependencyError
 
     # Set environment variables for Git operations
     if offline:
@@ -1847,18 +1927,39 @@ def add(bot_name, cog_name, offline, force_update):
             display.error(f"Cog '{cog_name}' not found in repository")
             return
 
-        # Install the cog
-        cog_repo.install_cog(bot_path, cog_name)
+        # Check for dependencies
+        missing_deps = cog_repo.check_missing_dependencies(bot_path, cog_name)
+        if missing_deps and not no_deps:
+            console.print(f"\n[cyan]Checking dependencies for '{cog_name}'...[/]")
+            for dep_name, version_req in missing_deps:
+                console.print(f"  ⚠ Missing: {dep_name} ({version_req})")
 
-        display.success(f"✓ Cog '{cog_name}' installed successfully")
+            if not click.confirm("\nInstall dependencies automatically?", default=True):
+                display.warning("Installation cancelled (dependencies required)")
+                return
+
+            # Show dependency installation progress
+            console.print()
+            deps_to_install = cog_repo.resolve_dependencies(cog_name, bot_path)
+            for dep_name in deps_to_install:
+                console.print(f"  → Installing {dep_name}...", end=" ")
+                cog_repo.install_cog(bot_path, dep_name, auto_install_deps=False)
+                console.print("[green]✓[/]")
+
+        # Install the cog
+        console.print(f"  → Installing {cog_name}...", end=" ")
+        cog_repo.install_cog(bot_path, cog_name, auto_install_deps=not no_deps)
+        console.print("[green]✓[/]")
+
+        display.success(f"\n✓ Cog '{cog_name}' installed successfully")
 
         # Show next steps
         console.print("\n[yellow]Next steps:[/]")
-        console.print(f"  1. The cog has been copied to {bot_path / 'cogs' / cog_name}")
-        console.print(f"  2. Dependencies have been installed automatically")
-        console.print(f"  3. Restart your bot to load the cog")
-        console.print(f"  4. Use the cog's commands (see README in cog directory)")
+        console.print(f"  1. Restart your bot to load the cog")
+        console.print(f"  2. Use the cog's commands (see README in cog directory)")
 
+    except CircularDependencyError as e:
+        display.error(f"Circular dependency detected: {e}")
     except ValueError as e:
         display.error(str(e))
     except Exception as e:
@@ -1960,6 +2061,300 @@ def update(bot_name, update_all, cog_name):
         display.error(str(e))
     except Exception as e:
         display.error(f"Failed to update cog: {e}")
+
+
+@cli.group()
+def token():
+    """Manage Discord bot tokens and API credentials."""
+    pass
+
+
+@token.command(name='list')
+@click.argument('bot_name', required=False)
+@click.option('--all', 'show_all', is_flag=True, help='Show all bots including those without tokens')
+def token_list(bot_name, show_all):
+    """
+    List stored credentials (API auth + bot tokens).
+
+    If no bot name is given, shows comprehensive credential overview.
+    If bot name is given, shows token status for that specific bot.
+
+    Examples:
+        multicord token list              # Show all credentials
+        multicord token list --all        # Include bots without tokens
+        multicord token list my-bot       # Show specific bot's token status
+    """
+    from multicord.utils.token_manager import TokenManager
+    from multicord.auth.discord import DiscordAuth
+    from multicord.local.bot_manager import BotManager
+
+    token_mgr = TokenManager()
+    auth_client = DiscordAuth()
+    manager = BotManager()
+
+    if bot_name:
+        # Show specific bot's token status
+        bot_path = manager.bots_dir / bot_name
+        if not bot_path.exists():
+            display.error(f"Bot '{bot_name}' not found")
+            sys.exit(1)
+
+        stored_token = token_mgr.get_token(bot_name)
+        storage_method = token_mgr.get_storage_method()
+
+        console.print(f"\n[bold cyan]Token Status for '{bot_name}'[/]\n")
+        console.print("─" * 60)
+
+        if stored_token:
+            console.print(f"[bold]Status:[/]     [green]✓ Token stored[/]")
+            console.print(f"[bold]Storage:[/]    {storage_method}")
+            console.print(f"[bold]Token:[/]      {_mask_token(stored_token)}")
+        else:
+            console.print(f"[bold]Status:[/]     [red]✗ No token stored[/]")
+            console.print(f"\n[yellow]Tip:[/] Use 'multicord token set {bot_name}' to store a token")
+
+        console.print("─" * 60)
+        return
+
+    # Comprehensive credential view
+    console.print("\n[bold cyan]MultiCord Credentials[/]")
+    console.print("═" * 60)
+
+    # API Authentication Section
+    console.print("\n[bold yellow]API Authentication[/]")
+    console.print("─" * 60)
+
+    tokens = auth_client.get_tokens()
+    user_info = auth_client.get_user_info()
+
+    if tokens and user_info:
+        username = user_info.get('discord_username', 'Unknown')
+        discord_id = user_info.get('discord_id', 'Unknown')
+        console.print(f"[bold]Status:[/]       [green]✓ Authenticated[/]")
+        console.print(f"[bold]User:[/]         {username}")
+        console.print(f"[bold]Discord ID:[/]   {discord_id}")
+        console.print(f"[bold]Method:[/]       Discord OAuth2")
+        console.print(f"[bold]Storage:[/]      {token_mgr.get_storage_method()}")
+    elif tokens:
+        console.print(f"[bold]Status:[/]       [green]✓ Authenticated[/] (user info unavailable)")
+    else:
+        console.print(f"[bold]Status:[/]       [red]✗ Not authenticated[/]")
+        console.print(f"[dim]Use 'multicord auth login' to authenticate[/]")
+
+    console.print("─" * 60)
+
+    # Bot Tokens Section
+    console.print("\n[bold yellow]Bot Tokens[/]")
+    console.print("─" * 60)
+
+    # Get all bots
+    all_bots = manager.list_bots()
+
+    if not all_bots:
+        console.print("[dim]No bots found[/]")
+        console.print("─" * 60)
+        return
+
+    # Build token status for each bot
+    table = Table(show_header=True, header_style="bold magenta")
+    table.add_column("Bot Name", style="cyan", width=20)
+    table.add_column("Storage Method", width=25)
+    table.add_column("Status", width=12)
+
+    bots_with_tokens = 0
+    bots_without_tokens = 0
+
+    for bot in sorted(all_bots, key=lambda b: b['name']):
+        bot_name_str = bot['name']
+        stored_token = token_mgr.get_token(bot_name_str)
+
+        if stored_token:
+            bots_with_tokens += 1
+            storage = token_mgr.get_storage_method()
+            status = "[green]✓ Stored[/]"
+            table.add_row(bot_name_str, storage, status)
+        else:
+            bots_without_tokens += 1
+            if show_all:
+                table.add_row(bot_name_str, "[dim]Not Set[/]", "[red]✗ Missing[/]")
+
+    if bots_with_tokens > 0 or show_all:
+        console.print(table)
+    else:
+        console.print("[dim]No tokens stored yet[/]")
+
+    console.print("─" * 60)
+    console.print(f"{len(all_bots)} bot(s), {bots_with_tokens} with tokens stored")
+
+    if bots_without_tokens > 0 and not show_all:
+        console.print(f"[dim]{bots_without_tokens} bot(s) without tokens (use --all to show)[/]")
+
+    console.print(f"\n[yellow]Tip:[/] Use 'multicord token set <bot>' to add missing tokens")
+
+
+@token.command(name='set')
+@click.argument('bot_name')
+@click.option('--token', 'token_value', default=None,
+              help='Discord bot token to store securely')
+def token_set(bot_name, token_value):
+    """
+    Store Discord bot token securely.
+
+    Uses Windows Credential Manager (or OS keyring on macOS/Linux) for primary storage.
+    Falls back to encrypted file storage in headless environments.
+
+    Examples:
+        multicord token set my-bot              # Interactive prompt (recommended)
+        multicord token set my-bot --token xxx  # Provide token directly
+    """
+    import getpass
+    from multicord.utils.token_manager import TokenManager
+    from multicord.local.bot_manager import BotManager
+
+    manager = BotManager()
+    token_mgr = TokenManager()
+
+    # Verify bot exists
+    bot_path = manager.bots_dir / bot_name
+    if not bot_path.exists():
+        display.error(f"Bot '{bot_name}' not found")
+        sys.exit(1)
+
+    # If token not provided via flag, prompt interactively
+    if not token_value:
+        try:
+            token_value = getpass.getpass('Discord bot token: ')
+            if not token_value:
+                display.error("Token cannot be empty")
+                sys.exit(1)
+        except (KeyboardInterrupt, EOFError):
+            console.print("\n[yellow]Cancelled[/]")
+            sys.exit(0)
+
+    try:
+        token_mgr.store_token(bot_name, token_value)
+        storage_method = token_mgr.get_storage_method()
+        display.success(f"Token stored securely using: {storage_method}")
+        display.info("Old .env file can be safely deleted (token migrated)")
+        display.info(f"Start bot with: multicord bot start {bot_name}")
+    except ValueError as e:
+        display.error(str(e))
+        sys.exit(1)
+    except Exception as e:
+        display.error(f"Failed to store token: {e}")
+        sys.exit(1)
+
+
+@token.command(name='delete')
+@click.argument('bot_name')
+@click.option('--yes', '-y', is_flag=True, help='Skip confirmation prompt')
+def token_delete(bot_name, yes):
+    """
+    Delete stored Discord bot token.
+
+    Removes the token from secure storage (keyring or encrypted file).
+    Does NOT delete the bot itself.
+
+    Examples:
+        multicord token delete my-bot       # With confirmation
+        multicord token delete my-bot -y    # Skip confirmation
+    """
+    from multicord.utils.token_manager import TokenManager
+
+    token_mgr = TokenManager()
+
+    # Check if token exists
+    existing_token = token_mgr.get_token(bot_name)
+    if not existing_token:
+        display.warning(f"No token stored for bot '{bot_name}'")
+        return
+
+    # Confirm deletion
+    if not yes:
+        if not click.confirm(f"Delete stored token for '{bot_name}'?"):
+            display.info("Deletion cancelled")
+            return
+
+    # Delete the token
+    success = token_mgr.delete_token(bot_name)
+
+    if success:
+        display.success(f"Token deleted for '{bot_name}'")
+        display.warning("Bot will not start without a valid token")
+    else:
+        display.error(f"Failed to delete token for '{bot_name}'")
+        sys.exit(1)
+
+
+@token.command(name='show')
+@click.argument('bot_name')
+@click.option('--unmask', is_flag=True, help='Show full token (use with caution)')
+def token_show(bot_name, unmask):
+    """
+    Display stored token details for a bot.
+
+    By default, the token is masked for security. Use --unmask to reveal
+    the full token (be careful with screen sharing/recording).
+
+    Examples:
+        multicord token show my-bot           # Show masked token
+        multicord token show my-bot --unmask  # Show full token (careful!)
+    """
+    from multicord.utils.token_manager import TokenManager
+
+    token_mgr = TokenManager()
+
+    stored_token = token_mgr.get_token(bot_name)
+
+    if not stored_token:
+        display.error(f"No token stored for bot '{bot_name}'")
+        display.info(f"Use 'multicord token set {bot_name}' to store a token")
+        sys.exit(1)
+
+    storage_method = token_mgr.get_storage_method()
+
+    console.print(f"\n[bold cyan]Token for '{bot_name}'[/]")
+    console.print("─" * 60)
+    console.print(f"[bold]Storage:[/]   {storage_method}")
+    console.print(f"[bold]Status:[/]    [green]✓ Stored securely[/]")
+
+    if unmask:
+        console.print(f"[bold]Token:[/]     {stored_token}")
+        console.print("\n[yellow]⚠ Token displayed in full - be careful with screen sharing![/]")
+    else:
+        console.print(f"[bold]Token:[/]     {_mask_token(stored_token)}")
+        console.print(f"\n[dim]Use --unmask to reveal full token[/]")
+
+    console.print("─" * 60)
+
+
+def _mask_token(token: str) -> str:
+    """
+    Mask a Discord token for display, showing only first and last segments partially.
+
+    Args:
+        token: Full Discord bot token
+
+    Returns:
+        Masked token string
+    """
+    if not token or len(token) < 20:
+        return "****"
+
+    # Discord tokens have format: user_id.timestamp.hmac
+    parts = token.split('.')
+
+    if len(parts) >= 3:
+        # Show first 5 chars of first segment, mask rest
+        first = parts[0][:5] + "..." if len(parts[0]) > 5 else parts[0]
+        # Mask middle segment completely
+        middle = "****"
+        # Show last 4 chars of last segment
+        last = "..." + parts[-1][-4:] if len(parts[-1]) > 4 else parts[-1]
+        return f"{first}.{middle}.{last}"
+    else:
+        # Fallback: show first 8 and last 4 chars
+        return f"{token[:8]}...****...{token[-4:]}"
 
 
 @cli.group()

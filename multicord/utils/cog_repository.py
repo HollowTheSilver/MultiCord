@@ -1,15 +1,62 @@
 """
 Cog repository management for MultiCord CLI.
 Handles downloading and managing optional bot cogs from Git repositories.
+Includes dependency resolution for cog-to-cog dependencies.
 """
 
 import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Set, Tuple
 
 from multicord.utils.venv_manager import VenvManager
+
+
+class DependencyError(Exception):
+    """Raised when cog dependency resolution fails."""
+    pass
+
+
+class CircularDependencyError(DependencyError):
+    """Raised when a circular dependency is detected."""
+    pass
+
+
+class VersionMismatchError(DependencyError):
+    """Raised when a dependency version requirement cannot be satisfied."""
+    pass
+
+
+def parse_version(version_str: str) -> Tuple[int, int, int]:
+    """Parse a semver version string into tuple (major, minor, patch)."""
+    match = re.match(r'^(\d+)\.(\d+)\.(\d+)', version_str)
+    if match:
+        return (int(match.group(1)), int(match.group(2)), int(match.group(3)))
+    return (0, 0, 0)
+
+
+def version_satisfies(installed_version: str, requirement: str) -> bool:
+    """
+    Check if an installed version satisfies a version requirement.
+
+    Supports: >=1.0.0, ^1.0.0 (1.x.x), ~1.0.0 (1.0.x), exact match (1.0.0)
+    """
+    installed = parse_version(installed_version)
+
+    if requirement.startswith('>='):
+        required = parse_version(requirement[2:])
+        return installed >= required
+    elif requirement.startswith('^'):
+        required = parse_version(requirement[1:])
+        return installed[0] == required[0] and installed >= required
+    elif requirement.startswith('~'):
+        required = parse_version(requirement[1:])
+        return installed[0] == required[0] and installed[1] == required[1] and installed >= required
+    else:
+        required = parse_version(requirement)
+        return installed == required
 
 
 class CogRepository:
@@ -72,24 +119,180 @@ class CogRepository:
 
         return None
 
-    def install_cog(self, bot_path: Path, cog_name: str) -> bool:
+    def get_cog_dependencies(self, cog_name: str) -> Dict[str, str]:
         """
-        Install a cog into a bot's cogs directory.
+        Get dependencies for a cog from its manifest.
+
+        Args:
+            cog_name: Name of the cog
+
+        Returns:
+            Dictionary of {dependency_name: version_requirement}
+        """
+        cog_path = self.get_cog_path(cog_name)
+        if not cog_path:
+            return {}
+
+        manifest_file = cog_path / "manifest.json"
+        if not manifest_file.exists():
+            return {}
+
+        with open(manifest_file, 'r', encoding='utf-8') as f:
+            manifest = json.load(f)
+
+        return manifest.get('dependencies', {})
+
+    def get_cog_optional_dependencies(self, cog_name: str) -> Dict[str, str]:
+        """Get optional dependencies for a cog."""
+        cog_path = self.get_cog_path(cog_name)
+        if not cog_path:
+            return {}
+
+        manifest_file = cog_path / "manifest.json"
+        if not manifest_file.exists():
+            return {}
+
+        with open(manifest_file, 'r', encoding='utf-8') as f:
+            manifest = json.load(f)
+
+        return manifest.get('optional_dependencies', {})
+
+    def resolve_dependencies(
+        self,
+        cog_name: str,
+        bot_path: Path,
+        visited: Optional[Set[str]] = None,
+        chain: Optional[List[str]] = None
+    ) -> List[str]:
+        """
+        Resolve all dependencies for a cog recursively.
+
+        Args:
+            cog_name: Name of the cog to resolve dependencies for
+            bot_path: Path to the bot directory
+            visited: Set of already processed cogs (for circular detection)
+            chain: Current dependency chain (for error reporting)
+
+        Returns:
+            Ordered list of cogs to install (dependencies first)
+
+        Raises:
+            CircularDependencyError: If circular dependency detected
+            DependencyError: If a required dependency cannot be found
+        """
+        if visited is None:
+            visited = set()
+        if chain is None:
+            chain = []
+
+        if cog_name in visited:
+            if cog_name in chain:
+                cycle = chain[chain.index(cog_name):] + [cog_name]
+                raise CircularDependencyError(
+                    f"Circular dependency detected: {' → '.join(cycle)}"
+                )
+            return []
+
+        visited.add(cog_name)
+        chain.append(cog_name)
+
+        install_order = []
+        dependencies = self.get_cog_dependencies(cog_name)
+
+        for dep_name, version_req in dependencies.items():
+            if not self.get_cog_path(dep_name):
+                raise DependencyError(
+                    f"Required dependency '{dep_name}' for cog '{cog_name}' not found in repository"
+                )
+
+            installed_cogs = self.list_installed_cogs(bot_path)
+            if dep_name not in installed_cogs:
+                dep_order = self.resolve_dependencies(dep_name, bot_path, visited, chain.copy())
+                for dep in dep_order:
+                    if dep not in install_order:
+                        install_order.append(dep)
+                if dep_name not in install_order:
+                    install_order.append(dep_name)
+            else:
+                installed_info = self.get_installed_cog_info(bot_path, dep_name)
+                installed_version = installed_info.get('version', '0.0.0') if installed_info else '0.0.0'
+                if not version_satisfies(installed_version, version_req):
+                    raise VersionMismatchError(
+                        f"Cog '{cog_name}' requires {dep_name} {version_req}, "
+                        f"but {installed_version} is installed"
+                    )
+
+        chain.pop()
+        return install_order
+
+    def check_missing_dependencies(self, bot_path: Path, cog_name: str) -> List[Tuple[str, str]]:
+        """
+        Check which dependencies are missing for a cog.
+
+        Returns:
+            List of (dependency_name, version_requirement) tuples for missing deps
+        """
+        dependencies = self.get_cog_dependencies(cog_name)
+        installed_cogs = self.list_installed_cogs(bot_path)
+        missing = []
+
+        for dep_name, version_req in dependencies.items():
+            if dep_name not in installed_cogs:
+                missing.append((dep_name, version_req))
+
+        return missing
+
+    def install_cog(
+        self,
+        bot_path: Path,
+        cog_name: str,
+        auto_install_deps: bool = True,
+        _installing_chain: Optional[Set[str]] = None
+    ) -> bool:
+        """
+        Install a cog into a bot's cogs directory with dependency resolution.
 
         Args:
             bot_path: Path to the bot directory
             cog_name: Name of the cog to install
+            auto_install_deps: If True, automatically install missing dependencies
+            _installing_chain: Internal tracking for dependency installation
 
         Returns:
             True if successful, False otherwise
         """
+        if _installing_chain is None:
+            _installing_chain = set()
+
         # Get cog source path
         cog_source = self.get_cog_path(cog_name)
         if not cog_source:
             raise ValueError(f"Cog '{cog_name}' not found in repository")
 
-        # Ensure bot has cogs directory
+        # Check if already installed
         bot_cogs_dir = bot_path / "cogs"
+        cog_dest = bot_cogs_dir / cog_name
+        if cog_dest.exists():
+            if cog_name in _installing_chain:
+                return True
+            raise ValueError(f"Cog '{cog_name}' is already installed")
+
+        # Resolve and install dependencies first
+        if auto_install_deps:
+            try:
+                deps_to_install = self.resolve_dependencies(cog_name, bot_path)
+                _installing_chain.add(cog_name)
+
+                for dep_name in deps_to_install:
+                    if dep_name not in self.list_installed_cogs(bot_path):
+                        self.install_cog(bot_path, dep_name, auto_install_deps=True,
+                                        _installing_chain=_installing_chain)
+            except CircularDependencyError:
+                raise
+            except DependencyError as e:
+                raise ValueError(str(e))
+
+        # Ensure bot has cogs directory
         bot_cogs_dir.mkdir(exist_ok=True)
 
         # Create __init__.py in cogs directory if it doesn't exist
@@ -98,11 +301,6 @@ class CogRepository:
             cogs_init.write_text("# Cogs directory\n")
 
         # Copy cog to bot's cogs directory
-        cog_dest = bot_cogs_dir / cog_name
-
-        if cog_dest.exists():
-            raise ValueError(f"Cog '{cog_name}' is already installed")
-
         shutil.copytree(cog_source, cog_dest)
 
         # Install cog requirements if they exist
