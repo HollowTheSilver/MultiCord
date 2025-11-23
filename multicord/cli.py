@@ -260,15 +260,13 @@ def list(local, cloud, sync, status):
 @click.option('--cloud', is_flag=True, help='Create in cloud instead of locally')
 @click.option('--repo', help='Specific repository to use (default: auto-detect by priority)')
 @click.option('--token', 'set_token_flag', is_flag=True, help='Prompt for Discord token after creation')
-@click.option('--follow', 'follow_flag', is_flag=True, help='Start bot and follow logs after creation')
-def create(name, template, cloud, repo, set_token_flag, follow_flag):
+def create(name, template, cloud, repo, set_token_flag):
     """Create a new bot from template.
 
     Examples:
         multicord bot create my-bot                      # Basic creation
         multicord bot create my-bot --template moderation  # With template
         multicord bot create my-bot --token              # Create and set token
-        multicord bot create my-bot --token --follow     # Complete setup flow
     """
     import getpass
 
@@ -278,8 +276,8 @@ def create(name, template, cloud, repo, set_token_flag, follow_flag):
             display.error("Please login first: multicord auth login")
             sys.exit(1)
 
-        if set_token_flag or follow_flag:
-            display.warning("--token and --follow flags are only supported for local bots")
+        if set_token_flag:
+            display.warning("--token flag is only supported for local bots")
 
         display.info(f"Creating cloud bot '{name}' from template '{template}'...")
         try:
@@ -335,34 +333,10 @@ def create(name, template, cloud, repo, set_token_flag, follow_flag):
                 except Exception as e:
                     display.error(f"Failed to store token: {e}")
 
-            # Handle --follow flag: start bot and follow logs
-            if follow_flag:
-                if not token_stored and set_token_flag:
-                    display.warning("Bot not started (no token stored)")
-                    console.print(f"\n[yellow]Start manually:[/] multicord bot start {name}")
-                else:
-                    console.print()
-                    display.info(f"Starting bot '{name}'...")
-                    try:
-                        pid = manager.start_bot(name)
-                        status = manager.get_bot_status(name)
-                        if status and status.get('port'):
-                            display.success(f"Bot '{name}' started with PID {pid} on port {status['port']}")
-                        else:
-                            display.success(f"Bot '{name}' started with PID {pid}")
-
-                        console.print()
-                        display.info(f"Following logs for '{name}' (Ctrl+C to stop)...")
-                        manager.follow_logs(name)
-                    except Exception as e:
-                        display.error(f"Failed to start bot: {e}")
-                        sys.exit(1)
-            elif not set_token_flag:
-                # Only show start hint if not using --token or --follow
-                console.print(f"\n[yellow]Start with:[/] multicord bot start {name}")
-            elif token_stored:
-                # Token was stored but --follow not used
-                console.print(f"\n[yellow]Start with:[/] multicord bot start {name}")
+            # Show start command hint
+            console.print(f"\n[yellow]Start with:[/] multicord bot start {name}")
+            if token_stored:
+                console.print(f"[dim]Tip: Use --follow to watch logs in real-time[/]")
 
         except Exception as e:
             display.error(f"Failed to create bot: {e}")
@@ -373,12 +347,16 @@ def create(name, template, cloud, repo, set_token_flag, follow_flag):
 @click.argument('names', nargs=-1, required=True)
 @click.option('--cloud', is_flag=True, help='Start cloud bot')
 @click.option('--env', '-e', multiple=True, help='Environment variables (KEY=VALUE format, can be used multiple times)')
-def start(names, cloud, env):
+@click.option('--follow', is_flag=True, help='Follow logs after starting (only for single bot)')
+def start(names, cloud, env, follow):
     """
     Start one or more bots.
 
     You can inject environment variables using --env:
         multicord bot start my-bot --env DISCORD_TOKEN=xxx --env LOG_LEVEL=DEBUG
+
+    Use --follow to watch logs in real-time after starting:
+        multicord bot start my-bot --follow
     """
     # Parse environment variables
     env_vars = {}
@@ -399,6 +377,9 @@ def start(names, cloud, env):
         if env_vars:
             display.warning("Environment variables are ignored for cloud bots")
 
+        if follow:
+            display.warning("--follow is not supported for cloud bots")
+
         for name in names:
             try:
                 display.info(f"Starting cloud bot '{name}'...")
@@ -408,6 +389,11 @@ def start(names, cloud, env):
                 display.error(f"Failed to start cloud bot '{name}': {e}")
     else:
         manager = BotManager()
+
+        # Validate --follow usage
+        if follow and len(names) > 1:
+            display.warning("--follow only works with a single bot, ignoring for multiple bots")
+            follow = False
 
         for name in names:
             try:
@@ -423,6 +409,19 @@ def start(names, cloud, env):
                     display.success(f"Bot '{name}' started with PID {pid}")
             except Exception as e:
                 display.error(f"Failed to start bot '{name}': {e}")
+                if follow:
+                    sys.exit(1)  # Exit if we can't start the bot we're supposed to follow
+
+        # Follow logs if requested (only for single bot)
+        if follow and len(names) == 1:
+            import time
+            time.sleep(0.5)  # Brief pause to let bot initialize
+            console.print()
+            display.info(f"Following logs for '{names[0]}' (Ctrl+C to stop)...")
+            try:
+                manager.follow_logs(names[0])
+            except KeyboardInterrupt:
+                console.print("\n[yellow]Stopped following logs[/]")
 
 
 @bot.command()

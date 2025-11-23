@@ -165,13 +165,13 @@ Complete bot lifecycle management with health monitoring.
 - `multicord bot create <name> --template <template>` - Create new bot from template
   - **Flags**: `--template` (required), `--repo` (custom repository)
   - **NEW in v1.2**: `--token` (prompt for Discord token after creation)
-  - **NEW in v1.2**: `--follow` (start bot and follow logs immediately)
   - **Automatic**: Creates isolated venv, installs requirements.txt, auto-installs cogs
 
 - `multicord bot delete <name>` - Delete a bot (with confirmation)
 
 - `multicord bot start <name> [name2...]` - Start one or more bots
-  - **Flags**: `--all` (start all bots)
+  - **Flags**: `--all` (start all bots), `--env KEY=VALUE` (inject environment variables)
+  - **NEW in v1.2**: `--follow` (follow logs after starting, single bot only)
   - **Validation**: Checks venv exists before starting
 
 - `multicord bot stop <name> [name2...]` - Stop one or more bots
