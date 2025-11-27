@@ -9,6 +9,7 @@ httpx>=0.26.0
 
 # Data Validation
 pydantic>=2.5.0
+jsonschema>=4.17.0  # JSON schema validation for manifests
 
 # Secure Token Storage
 keyring>=24.0.0

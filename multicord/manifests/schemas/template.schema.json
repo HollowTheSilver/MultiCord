@@ -1,0 +1,292 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://multicord.io/schemas/template.schema.json",
+  "title": "MultiCord Template Manifest",
+  "description": "Manifest for a MultiCord bot template (Layer 2 - Template Level)",
+  "type": "object",
+  "required": ["$schema", "type", "id", "name", "version", "author"],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Reference to this JSON schema for validation",
+      "const": "https://multicord.io/schemas/template.schema.json"
+    },
+    "type": {
+      "type": "string",
+      "description": "Manifest type",
+      "const": "template"
+    },
+    "id": {
+      "type": "string",
+      "description": "Unique template identifier (lowercase, hyphenated)",
+      "pattern": "^[a-z0-9-]+$",
+      "minLength": 1,
+      "maxLength": 50,
+      "examples": ["basic", "moderation", "music-player"]
+    },
+    "name": {
+      "type": "string",
+      "description": "Template display name",
+      "minLength": 1,
+      "maxLength": 100,
+      "examples": ["Basic Discord Bot", "Moderation Bot"]
+    },
+    "description": {
+      "type": "string",
+      "description": "Template description",
+      "maxLength": 500
+    },
+    "version": {
+      "type": "string",
+      "description": "Template version (semantic versioning)",
+      "pattern": "^\\d+\\.\\d+\\.\\d+(-[a-zA-Z0-9.-]+)?(\\+[a-zA-Z0-9.-]+)?$",
+      "examples": ["3.0.0", "3.1.0-beta.1"]
+    },
+    "author": {
+      "type": "string",
+      "description": "Template author name or organization",
+      "examples": ["MultiCord Team", "username"]
+    },
+    "category": {
+      "type": "string",
+      "description": "Template category",
+      "enum": ["general", "moderation", "entertainment", "utility", "advanced", "economy", "community"],
+      "examples": ["general", "moderation"]
+    },
+    "tags": {
+      "type": "array",
+      "description": "Searchable tags",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 30
+      },
+      "uniqueItems": true,
+      "examples": [["moderation", "admin", "server-management", "warnings"]]
+    },
+    "discord_py_version": {
+      "type": "string",
+      "description": "Required discord.py version (pip version specifier)",
+      "examples": [">=2.0.0", "~=2.3.0"]
+    },
+    "python_version": {
+      "type": "string",
+      "description": "Required Python version (pip version specifier)",
+      "examples": [">=3.9", ">=3.11"]
+    },
+    "requires_cogs": {
+      "type": "array",
+      "description": "Flat list of required cogs with version constraints (v3.0 feature)",
+      "items": {
+        "oneOf": [
+          {
+            "type": "string",
+            "description": "Cog ID with npm-style version constraint",
+            "pattern": "^[a-z0-9-]+@[><=~^]?[0-9.]+",
+            "examples": ["moderation-tools@^1.0.0", "permissions@>=1.0.0", "economy@~1.2.0"]
+          },
+          {
+            "type": "object",
+            "required": ["id"],
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Cog identifier",
+                "pattern": "^[a-z0-9-]+$"
+              },
+              "version": {
+                "type": "string",
+                "description": "Version constraint",
+                "examples": ["^1.0.0", ">=1.0.0", "~1.2.0", "1.2.3"]
+              },
+              "required": {
+                "type": "boolean",
+                "description": "Whether this cog is required (default: true)",
+                "default": true
+              },
+              "reason": {
+                "type": "string",
+                "description": "Why this cog is needed",
+                "maxLength": 200
+              }
+            }
+          }
+        ]
+      },
+      "examples": [
+        ["moderation-tools@^1.0.0", "permissions@>=1.0.0"]
+      ]
+    },
+    "files": {
+      "type": "array",
+      "description": "List of files included in this template",
+      "items": {
+        "type": "string",
+        "examples": ["bot.py", "config.toml", "requirements.txt", ".env.example"]
+      },
+      "minItems": 1
+    },
+    "featured": {
+      "type": "boolean",
+      "description": "Whether this template is featured",
+      "default": false
+    },
+    "default": {
+      "type": "boolean",
+      "description": "Whether this is the default template",
+      "default": false
+    },
+    "changelog": {
+      "type": "object",
+      "description": "Version changelog (version → changes array)",
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          {
+            "type": "string"
+          }
+        ]
+      },
+      "examples": [{
+        "3.0.0": ["Feature: New manifest system", "Breaking: Renamed commands"],
+        "2.1.0": "Architecture: Refactored to cog-based system"
+      }]
+    },
+    "features": {
+      "type": "object",
+      "description": "Template features (boolean flags)",
+      "properties": {
+        "slash_commands": { "type": "boolean" },
+        "prefix_commands": { "type": "boolean" },
+        "database": { "type": "boolean" },
+        "api_integration": { "type": "boolean" },
+        "voice_support": { "type": "boolean" },
+        "automatic_cog_loading": { "type": "boolean" },
+        "structured_logging": { "type": "boolean" },
+        "toml_configuration": { "type": "boolean" },
+        "environment_variables": { "type": "boolean" },
+        "global_error_handling": { "type": "boolean" }
+      },
+      "additionalProperties": { "type": "boolean" }
+    },
+    "permissions": {
+      "type": "object",
+      "description": "Discord permissions needed",
+      "properties": {
+        "required": {
+          "type": "array",
+          "description": "Required Discord permissions",
+          "items": {
+            "type": "string",
+            "examples": ["send_messages", "embed_links", "kick_members", "ban_members"]
+          }
+        },
+        "optional": {
+          "type": "array",
+          "description": "Optional Discord permissions (for enhanced features)",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "dependencies": {
+      "type": "object",
+      "description": "External dependencies (system tools, services)",
+      "properties": {
+        "system": {
+          "type": "array",
+          "description": "System-level dependencies (ffmpeg, redis, etc.)",
+          "items": {
+            "type": "string",
+            "examples": ["ffmpeg", "redis-server"]
+          }
+        },
+        "services": {
+          "type": "array",
+          "description": "External services needed (APIs, databases)",
+          "items": {
+            "type": "string",
+            "examples": ["PostgreSQL", "Redis"]
+          }
+        }
+      }
+    },
+    "compatibility": {
+      "type": "object",
+      "description": "Compatibility information",
+      "properties": {
+        "multicord_version": {
+          "type": "string",
+          "description": "Required MultiCord CLI version",
+          "examples": [">=1.0.0"]
+        },
+        "platforms": {
+          "type": "array",
+          "description": "Supported platforms",
+          "items": {
+            "type": "string",
+            "enum": ["windows", "linux", "macos", "docker"]
+          }
+        }
+      }
+    },
+    "notes": {
+      "type": "array",
+      "description": "Additional notes or warnings",
+      "items": {
+        "type": "string"
+      },
+      "examples": [["Requires ffmpeg to be installed on the system"]]
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Additional template metadata (extensible)",
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false,
+  "examples": [
+    {
+      "$schema": "https://multicord.io/schemas/template.schema.json",
+      "type": "template",
+      "id": "moderation",
+      "name": "Moderation Bot",
+      "description": "Minimal scaffolding bot that loads moderation features from moderation-tools cog",
+      "version": "3.0.0",
+      "author": "MultiCord Team",
+      "category": "moderation",
+      "tags": ["moderation", "admin", "server-management", "cog-based"],
+      "discord_py_version": ">=2.0.0",
+      "python_version": ">=3.9",
+      "requires_cogs": [
+        "moderation-tools@^1.0.0"
+      ],
+      "files": ["bot.py", "config.toml", "requirements.txt", ".env.example", ".gitignore", "README.md"],
+      "featured": true,
+      "changelog": {
+        "3.0.0": ["Architecture: Updated to v3.0 manifest system", "Feature: Flattened cog dependencies"],
+        "2.1.0": ["Architecture: Refactored to cog-based system", "Feature: Auto-installs moderation-tools cog"]
+      },
+      "features": {
+        "slash_commands": false,
+        "prefix_commands": true,
+        "automatic_cog_loading": true,
+        "structured_logging": true
+      },
+      "permissions": {
+        "required": ["send_messages", "embed_links", "kick_members", "ban_members"],
+        "optional": ["manage_channels", "view_audit_log"]
+      },
+      "compatibility": {
+        "multicord_version": ">=3.0.0",
+        "platforms": ["windows", "linux", "macos"]
+      }
+    }
+  ]
+}

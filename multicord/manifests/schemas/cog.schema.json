@@ -1,0 +1,314 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://multicord.io/schemas/cog.schema.json",
+  "title": "MultiCord Cog Manifest",
+  "description": "Manifest for a MultiCord bot cog (Layer 2 - Cog Level)",
+  "type": "object",
+  "required": ["$schema", "type", "id", "name", "version", "author"],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Reference to this JSON schema for validation",
+      "const": "https://multicord.io/schemas/cog.schema.json"
+    },
+    "type": {
+      "type": "string",
+      "description": "Manifest type",
+      "const": "cog"
+    },
+    "id": {
+      "type": "string",
+      "description": "Unique cog identifier (lowercase, hyphenated)",
+      "pattern": "^[a-z0-9-]+$",
+      "minLength": 1,
+      "maxLength": 50,
+      "examples": ["moderation-tools", "music-player", "permissions"]
+    },
+    "name": {
+      "type": "string",
+      "description": "Cog display name",
+      "minLength": 1,
+      "maxLength": 100,
+      "examples": ["Moderation Tools", "Music Player"]
+    },
+    "description": {
+      "type": "string",
+      "description": "Cog description",
+      "maxLength": 500
+    },
+    "version": {
+      "type": "string",
+      "description": "Cog version (semantic versioning)",
+      "pattern": "^\\d+\\.\\d+\\.\\d+(-[a-zA-Z0-9.-]+)?(\\+[a-zA-Z0-9.-]+)?$",
+      "examples": ["1.0.0", "1.2.3-beta.1"]
+    },
+    "author": {
+      "type": "string",
+      "description": "Cog author name or organization",
+      "examples": ["MultiCord Team", "username"]
+    },
+    "category": {
+      "type": "string",
+      "description": "Cog category",
+      "enum": ["administration", "community", "moderation", "utility", "entertainment", "economy", "leveling"],
+      "examples": ["moderation", "entertainment"]
+    },
+    "tags": {
+      "type": "array",
+      "description": "Searchable tags",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 30
+      },
+      "uniqueItems": true,
+      "examples": [["moderation", "kick", "ban", "mute", "warn"]]
+    },
+    "discord_py_version": {
+      "type": "string",
+      "description": "Required discord.py version (pip version specifier)",
+      "examples": [">=2.0.0", "~=2.3.0"]
+    },
+    "python_version": {
+      "type": "string",
+      "description": "Required Python version (pip version specifier)",
+      "examples": [">=3.9", ">=3.11"]
+    },
+    "dependencies": {
+      "type": "object",
+      "description": "Required cog dependencies (other cogs)",
+      "additionalProperties": {
+        "type": "string",
+        "description": "Version constraint",
+        "examples": [">=1.0.0", "^1.0.0", "~1.2.0", "1.2.3"]
+      },
+      "examples": [{
+        "permissions": ">=1.0.0"
+      }]
+    },
+    "optional_dependencies": {
+      "type": "object",
+      "description": "Optional cog dependencies (enhanced features)",
+      "additionalProperties": {
+        "type": "string"
+      },
+      "examples": [{
+        "analytics": ">=1.0.0"
+      }]
+    },
+    "database_required": {
+      "type": "boolean",
+      "description": "Whether this cog requires a database",
+      "default": false
+    },
+    "database_optional": {
+      "type": "boolean",
+      "description": "Whether database is optional (enhanced features)",
+      "default": false
+    },
+    "files": {
+      "type": "array",
+      "description": "List of files included in this cog",
+      "items": {
+        "type": "string",
+        "examples": ["__init__.py", "moderation.py", "requirements.txt", "README.md"]
+      },
+      "minItems": 1
+    },
+    "featured": {
+      "type": "boolean",
+      "description": "Whether this cog is featured",
+      "default": false
+    },
+    "changelog": {
+      "type": "object",
+      "description": "Version changelog (version → changes array)",
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          {
+            "type": "string"
+          }
+        ]
+      },
+      "examples": [{
+        "1.0.0": "Initial release with kick, ban, mute, warn commands"
+      }]
+    },
+    "features": {
+      "type": "object",
+      "description": "Cog features (boolean flags or descriptive values)",
+      "additionalProperties": true,
+      "examples": [{
+        "kick_command": true,
+        "ban_command": true,
+        "warning_system": true
+      }]
+    },
+    "commands": {
+      "type": "object",
+      "description": "Commands provided by this cog (grouped by category)",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "examples": [{
+        "moderation": ["kick", "ban", "unban", "mute", "unmute"],
+        "warnings": ["warn", "warnings"]
+      }]
+    },
+    "permissions": {
+      "type": "object",
+      "description": "Discord permissions needed",
+      "properties": {
+        "required": {
+          "type": "array",
+          "description": "Required Discord permissions",
+          "items": {
+            "type": "string",
+            "examples": ["send_messages", "embed_links", "kick_members"]
+          }
+        },
+        "optional": {
+          "type": "array",
+          "description": "Optional Discord permissions",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "external_dependencies": {
+      "type": "object",
+      "description": "External dependencies (non-Python tools)",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["required"],
+        "properties": {
+          "required": {
+            "type": "boolean",
+            "description": "Whether this dependency is required"
+          },
+          "description": {
+            "type": "string",
+            "description": "What this dependency is used for"
+          },
+          "install_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "URL with installation instructions"
+          }
+        }
+      },
+      "examples": [{
+        "ffmpeg": {
+          "required": true,
+          "description": "Audio processing and encoding",
+          "install_url": "https://ffmpeg.org/download.html"
+        }
+      }]
+    },
+    "compatibility": {
+      "type": "object",
+      "description": "Compatibility information",
+      "properties": {
+        "multicord_version": {
+          "type": "string",
+          "description": "Required MultiCord CLI version",
+          "examples": [">=1.0.0"]
+        },
+        "platforms": {
+          "type": "array",
+          "description": "Supported platforms",
+          "items": {
+            "type": "string",
+            "enum": ["windows", "linux", "macos", "docker"]
+          }
+        }
+      }
+    },
+    "installation": {
+      "type": "object",
+      "description": "Installation instructions",
+      "properties": {
+        "cli_command": {
+          "type": "string",
+          "description": "CLI command to install this cog",
+          "examples": ["multicord cog add <bot-name> moderation-tools"]
+        },
+        "notes": {
+          "type": "array",
+          "description": "Additional installation notes",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Additional cog metadata (extensible)",
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false,
+  "examples": [
+    {
+      "$schema": "https://multicord.io/schemas/cog.schema.json",
+      "type": "cog",
+      "id": "moderation-tools",
+      "name": "Moderation Tools",
+      "description": "Comprehensive moderation toolkit with kick, ban, mute, warn, and auto-moderation features",
+      "version": "1.0.0",
+      "author": "MultiCord Team",
+      "category": "moderation",
+      "tags": ["moderation", "admin", "kick", "ban", "mute", "warn", "auto-mod"],
+      "discord_py_version": ">=2.0.0",
+      "python_version": ">=3.9",
+      "dependencies": {},
+      "optional_dependencies": {
+        "permissions": ">=1.0.0"
+      },
+      "database_required": false,
+      "database_optional": false,
+      "files": ["__init__.py", "requirements.txt", "cog.json", "README.md"],
+      "featured": true,
+      "changelog": {
+        "1.0.0": "Initial release with kick, ban, unban, mute, unmute, warn, warnings, clear, slowmode commands and auto-moderation"
+      },
+      "features": {
+        "kick_command": true,
+        "ban_command": true,
+        "unban_command": true,
+        "mute_system": true,
+        "warning_system": true,
+        "auto_moderation": true,
+        "message_clear": true,
+        "slowmode_control": true
+      },
+      "commands": {
+        "moderation": ["kick", "ban", "unban", "mute", "unmute"],
+        "warnings": ["warn", "warnings"],
+        "channel": ["clear", "slowmode"]
+      },
+      "permissions": {
+        "required": ["send_messages", "embed_links", "kick_members", "ban_members", "manage_messages", "manage_roles", "moderate_members"],
+        "optional": ["manage_channels", "view_audit_log"]
+      },
+      "compatibility": {
+        "multicord_version": ">=1.0.0",
+        "platforms": ["windows", "linux", "macos"]
+      },
+      "installation": {
+        "cli_command": "multicord cog add <bot-name> moderation-tools"
+      }
+    }
+  ]
+}

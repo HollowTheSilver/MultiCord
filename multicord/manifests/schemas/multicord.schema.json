@@ -1,0 +1,178 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://multicord.io/schemas/multicord.schema.json",
+  "title": "MultiCord Repository Manifest",
+  "description": "Root manifest for a MultiCord template/cog repository (Layer 1)",
+  "type": "object",
+  "required": ["$schema", "type", "name", "version"],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Reference to this JSON schema for validation",
+      "const": "https://multicord.io/schemas/multicord.schema.json"
+    },
+    "type": {
+      "type": "string",
+      "description": "Repository type",
+      "enum": ["collection", "template", "cog"],
+      "default": "collection"
+    },
+    "name": {
+      "type": "string",
+      "description": "Repository display name",
+      "minLength": 1,
+      "maxLength": 100,
+      "examples": ["MultiCord Official Templates", "Community Bot Templates"]
+    },
+    "description": {
+      "type": "string",
+      "description": "Repository description",
+      "maxLength": 500
+    },
+    "version": {
+      "type": "string",
+      "description": "Repository version (semantic versioning)",
+      "pattern": "^\\d+\\.\\d+\\.\\d+(-[a-zA-Z0-9.-]+)?(\\+[a-zA-Z0-9.-]+)?$",
+      "examples": ["3.0.0", "3.1.0-beta.1"]
+    },
+    "url": {
+      "type": "string",
+      "description": "Repository URL (Git repository)",
+      "format": "uri",
+      "examples": ["https://github.com/HollowTheSilver/MultiCord-Templates"]
+    },
+    "maintainers": {
+      "type": "array",
+      "description": "Repository maintainers",
+      "items": {
+        "type": "string",
+        "examples": ["MultiCord Team", "username@example.com"]
+      },
+      "minItems": 1
+    },
+    "homepage": {
+      "type": "string",
+      "description": "Repository homepage or documentation URL",
+      "format": "uri"
+    },
+    "license": {
+      "type": "string",
+      "description": "Repository license (SPDX identifier)",
+      "examples": ["MIT", "Apache-2.0", "GPL-3.0", "UNLICENSED"]
+    },
+    "last_updated": {
+      "type": "string",
+      "description": "Last update date (ISO 8601)",
+      "format": "date",
+      "examples": ["2025-11-27"]
+    },
+    "items": {
+      "type": "array",
+      "description": "List of templates and cogs in this repository",
+      "items": {
+        "type": "string",
+        "description": "Relative path to item directory (ending with /)",
+        "pattern": "^[a-z0-9_-]+(/[a-z0-9_-]+)*/$",
+        "examples": ["basic/", "moderation/", "cogs/permissions/", "cogs/moderation-tools/"]
+      },
+      "uniqueItems": true,
+      "minItems": 1
+    },
+    "categories": {
+      "type": "object",
+      "description": "Template/cog category definitions",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Category display name"
+          },
+          "description": {
+            "type": "string",
+            "description": "Category description"
+          },
+          "icon": {
+            "type": "string",
+            "description": "Category icon (emoji or icon name)",
+            "maxLength": 10
+          }
+        }
+      },
+      "examples": [{
+        "general": {
+          "name": "General Purpose",
+          "description": "Basic bots, utility bots, starter templates",
+          "icon": "⚡"
+        }
+      }]
+    },
+    "statistics": {
+      "type": "object",
+      "description": "Repository statistics (auto-calculated or manually set)",
+      "properties": {
+        "total_templates": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "total_cogs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "featured_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "categories_count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Additional repository metadata (extensible)",
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false,
+  "examples": [
+    {
+      "$schema": "https://multicord.io/schemas/multicord.schema.json",
+      "type": "collection",
+      "name": "MultiCord Official Templates",
+      "description": "Official Discord bot templates and cogs for MultiCord CLI",
+      "version": "3.0.0",
+      "url": "https://github.com/HollowTheSilver/MultiCord-Templates",
+      "maintainers": ["MultiCord Team"],
+      "license": "MIT",
+      "last_updated": "2025-11-27",
+      "items": [
+        "basic/",
+        "moderation/",
+        "music/",
+        "business/",
+        "cogs/permissions/",
+        "cogs/moderation-tools/",
+        "cogs/music-player/"
+      ],
+      "categories": {
+        "general": {
+          "name": "General Purpose",
+          "description": "Basic bots, utility bots, starter templates",
+          "icon": "⚡"
+        },
+        "moderation": {
+          "name": "Moderation & Administration",
+          "description": "Community management, anti-spam, logging, role management",
+          "icon": "🛡️"
+        }
+      },
+      "statistics": {
+        "total_templates": 4,
+        "total_cogs": 3
+      }
+    }
+  ]
+}
