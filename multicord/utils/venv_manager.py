@@ -65,7 +65,9 @@ class VenvManager:
                 [str(venv_python), "-m", "pip", "install", "--upgrade",
                  "pip", "setuptools", "wheel"],
                 check=True,
-                timeout=300  # 5 minute safety timeout
+                timeout=300,  # 5 minute safety timeout
+                stdout=None,  # Inherit parent's stdout (shows output in terminal)
+                stderr=None   # Inherit parent's stderr
             )
 
             return True, f"Created virtual environment at {venv_dir}"
@@ -194,7 +196,9 @@ class VenvManager:
                 cmd,
                 check=True,
                 timeout=300,  # 5 minute safety timeout
-                cwd=bot_dir
+                cwd=bot_dir,
+                stdout=None,  # Inherit parent's stdout (shows pip output in terminal)
+                stderr=None   # Inherit parent's stderr
             )
 
             return True, "Successfully installed requirements"
@@ -282,7 +286,9 @@ class VenvManager:
                 [str(venv_python), "-m", "pip", "install", "--upgrade",
                  "--cache-dir", str(self.pip_cache_dir)] + package_names,
                 check=True,
-                timeout=300  # 5 minute safety timeout
+                timeout=300,  # 5 minute safety timeout
+                stdout=None,  # Inherit parent's stdout (shows pip output in terminal)
+                stderr=None   # Inherit parent's stderr
             )
 
             return True, f"Updated {len(package_names)} packages"

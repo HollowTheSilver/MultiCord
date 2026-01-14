@@ -11,6 +11,7 @@ import sys
 
 from multicord.api.client import APIClient
 from multicord.local.bot_manager import BotManager
+from multicord.docker import DockerManager
 from multicord.utils.config import ConfigManager
 from multicord.utils.display import Display
 from multicord.utils.errors import handle_error, FriendlyError, NetworkError, AuthenticationError
@@ -425,6 +426,133 @@ def start(names, cloud, env, follow):
 
 
 @bot.command()
+@click.argument('name', required=True)
+@click.option('--replicas', '-r', default=1, type=int, help='Number of container instances (default: 1)')
+@click.option('--rebuild', is_flag=True, help='Force rebuild Docker image')
+def run(name, replicas, rebuild):
+    """
+    Run bot in Docker container(s).
+
+    This command builds a Docker image for your bot and runs it in isolated container(s).
+    Perfect for testing cloud deployment locally before deploying to production.
+
+    Examples:
+        multicord bot run my-bot                    # Single container
+        multicord bot run my-bot --replicas 3       # 3 containers (horizontal scaling)
+        multicord bot run my-bot --rebuild          # Force rebuild image
+    """
+    try:
+        # Initialize Docker manager
+        manager = BotManager()
+        docker_mgr = DockerManager()
+
+        # Validate bot exists
+        bot_path = manager.bots_dir / name
+        if not bot_path.exists():
+            display.error(f"Bot '{name}' does not exist")
+            display.info(f"Create it with: multicord bot create {name} --template <template>")
+            sys.exit(1)
+
+        # Validate replicas
+        if replicas < 1:
+            display.error("Replicas must be at least 1")
+            sys.exit(1)
+
+        if replicas > 10:
+            display.warning("Running more than 10 replicas may exhaust system resources")
+            confirm = click.confirm("Continue anyway?", default=False)
+            if not confirm:
+                display.info("Cancelled")
+                sys.exit(0)
+
+        display.info(f"Running bot '{name}' with {replicas} replica(s) in Docker...")
+
+        # Build or rebuild Docker image (tag must be lowercase)
+        tag = f"multicord/{name.lower()}:latest"
+
+        # Check if image exists
+        try:
+            existing_images = docker_mgr.docker_client.client.images.list(name=tag)
+            image_exists = len(existing_images) > 0
+        except Exception:
+            image_exists = False
+
+        if rebuild or not image_exists:
+            action = "Rebuilding" if rebuild else "Building"
+            display.info(f"{action} Docker image for '{name}'...")
+            try:
+                image_id = docker_mgr.build_image(bot_path, tag=tag, show_progress=True)
+                console.print()  # Newline after progress
+            except Exception as e:
+                display.error(f"Failed to build Docker image: {e}")
+                sys.exit(1)
+        else:
+            display.info(f"Using existing Docker image: {tag}")
+
+        # Check for existing containers and clean them up
+        existing_containers = docker_mgr.list_bot_containers(name)
+        if existing_containers:
+            display.info(f"Found {len(existing_containers)} existing container(s), removing them...")
+            for container in existing_containers:
+                try:
+                    # Stop if running
+                    if container.status == "running":
+                        docker_mgr.stop_container(container.id, timeout=10)
+                    # Remove container
+                    docker_mgr.remove_container(container.id, force=True)
+                    display.success(f"✓ Removed container: {container.name}")
+                except Exception as cleanup_error:
+                    display.warning(f"Failed to remove container {container.name}: {cleanup_error}")
+
+        # Create and start containers
+        display.info(f"Starting {replicas} container instance(s)...")
+
+        containers_started = []
+        for instance_id in range(1, replicas + 1):
+            try:
+                # Create container
+                container_id = docker_mgr.create_container(
+                    bot_name=name,
+                    image_id=tag,
+                    instance_id=instance_id,
+                    env_vars=None,  # Loads from bot's .env
+                    resource_limits=None  # Resource limits configurable in future release
+                )
+
+                # Start container
+                docker_mgr.start_container(container_id)
+
+                containers_started.append(container_id)
+                container_name = f"multicord_{name}_{instance_id}"
+                display.success(f"✓ Started container {instance_id}/{replicas}: {container_name}")
+
+            except Exception as e:
+                display.error(f"Failed to start container {instance_id}/{replicas}: {e}")
+                # Stop previously started containers on failure
+                if containers_started:
+                    display.warning("Cleaning up previously started containers...")
+                    for cid in containers_started:
+                        try:
+                            docker_mgr.stop_container(cid, timeout=10)
+                            docker_mgr.remove_container(cid, force=True)
+                        except Exception:
+                            pass
+                sys.exit(1)
+
+        console.print()
+        display.success(f"✓ Bot '{name}' is now running with {replicas} container(s)")
+        display.info(f"View logs with: multicord bot logs {name} --follow")
+        display.info(f"Stop containers with: multicord bot stop {name}")
+
+        if replicas > 1:
+            display.info(f"All containers share the multicord-network for communication")
+
+    except Exception as e:
+        display.error(f"Failed to run bot: {e}")
+        sys.exit(1)
+
+
+@bot.command()
 @click.argument('names', nargs=-1, required=True)
 @click.option('--cloud', is_flag=True, help='Stop cloud bot')
 @click.option('--force', is_flag=True, help='Force stop if graceful shutdown fails')
@@ -446,15 +574,62 @@ def stop(names, cloud, force):
                 display.error(f"Failed to stop cloud bot '{name}': {e}")
     else:
         manager = BotManager()
-        
+
+        # Try to initialize Docker manager
+        docker_mgr = None
+        try:
+            docker_mgr = DockerManager()
+        except Exception as docker_init_error:
+            # Docker not available, will use local process manager only
+            pass
+
         for name in names:
             try:
-                if force:
-                    display.info(f"Force stopping local bot '{name}'...")
+                docker_containers = []
+
+                # Check for Docker containers if Docker is available
+                if docker_mgr:
+                    try:
+                        docker_containers = docker_mgr.list_bot_containers(name)
+                    except Exception as docker_list_error:
+                        # Docker listing failed, fall back to process manager
+                        pass
+
+                if docker_containers:
+                    # Stop Docker containers
+                    display.info(f"Stopping {len(docker_containers)} Docker container(s) for '{name}'...")
+
+                    stopped_count = 0
+                    for container in docker_containers:
+                        try:
+                            timeout = 10 if not force else 5
+                            docker_mgr.stop_container(container.id, timeout=timeout)
+
+                            # Remove container after stopping
+                            docker_mgr.remove_container(container.id, force=force)
+
+                            stopped_count += 1
+                            display.success(f"✓ Stopped container: {container.name}")
+                        except Exception as container_error:
+                            display.warning(f"Failed to stop container {container.name}: {container_error}")
+
+                    if stopped_count == len(docker_containers):
+                        display.success(f"All {stopped_count} container(s) for '{name}' stopped")
+                    elif stopped_count > 0:
+                        display.warning(f"Stopped {stopped_count}/{len(docker_containers)} container(s)")
+                    else:
+                        display.error(f"Failed to stop any containers for '{name}'")
+
                 else:
-                    display.info(f"Stopping local bot '{name}'...")
-                manager.stop_bot(name, force=force)
-                display.success(f"Bot '{name}' stopped")
+                    # No Docker containers, try local process
+                    if force:
+                        display.info(f"Force stopping local bot '{name}'...")
+                    else:
+                        display.info(f"Stopping local bot '{name}'...")
+
+                    manager.stop_bot(name, force=force)
+                    display.success(f"Bot '{name}' stopped")
+
             except Exception as e:
                 display.error(f"Failed to stop bot '{name}': {e}")
 
@@ -463,30 +638,69 @@ def stop(names, cloud, force):
 @click.argument('name')
 def status(name):
     """Get detailed status of a bot."""
+    from multicord.docker.docker_manager import DockerManager
+
     manager = BotManager()
     client = APIClient()
-    
-    # Try local first
+
+    # Check for Docker containers first
+    try:
+        docker_mgr = DockerManager()
+        docker_containers = docker_mgr.list_bot_containers(name)
+
+        if docker_containers:
+            console.print(f"\n[bold cyan]Docker Bot: {name}[/]")
+            console.print(f"  Containers: {len(docker_containers)}")
+
+            for idx, container in enumerate(docker_containers, 1):
+                container.reload()  # Refresh container state
+                status = container.status
+                status_color = "green" if status == "running" else "red"
+
+                console.print(f"\n  [bold]Container {idx}:[/] {container.name}")
+                console.print(f"    Status: [{status_color}]{status}[/{status_color}]")
+                console.print(f"    ID: {container.short_id}")
+                console.print(f"    Image: {container.image.tags[0] if container.image.tags else 'none'}")
+
+                # Get stats if running
+                if status == "running":
+                    try:
+                        stats = docker_mgr.get_container_stats(container.id)
+                        if stats:
+                            console.print(f"\n    [yellow]Health Metrics:[/]")
+                            console.print(f"      Memory: {stats['memory_mb']:.1f} MB / {stats['memory_limit_mb']:.1f} MB")
+                            console.print(f"      CPU: {stats['cpu_percent']:.1f}%")
+                            console.print(f"      Network RX: {stats['network_rx_mb']:.2f} MB")
+                            console.print(f"      Network TX: {stats['network_tx_mb']:.2f} MB")
+                    except Exception as e:
+                        # Stats not available - don't show metrics section at all
+                        pass
+
+            return  # Docker containers found, skip process check
+    except Exception:
+        pass  # Docker not available or error, fall back to process check
+
+    # Try local process
     local_status = manager.get_bot_status(name)
     if local_status:
         console.print(f"\n[bold cyan]Local Bot: {name}[/]")
-        
+
         # Status with color
         status = local_status.get('status', 'unknown')
         status_color = "green" if status == "running" else "red"
         console.print(f"  Status: [{status_color}]{status}[/{status_color}]")
-        
+
         # Basic info
         console.print(f"  Path: {local_status.get('path', '-')}")
         console.print(f"  PID: {local_status.get('pid', '-')}")
         console.print(f"  Port: {local_status.get('port', '-')}")
-        
+
         # Health metrics if running
         if status == "running":
             console.print(f"\n  [yellow]Health Metrics:[/]")
             console.print(f"    Memory: {local_status.get('memory_mb', 0):.1f} MB")
             console.print(f"    CPU: {local_status.get('cpu_percent', 0):.1f}%")
-            
+
             # Uptime formatting
             uptime = local_status.get('uptime_seconds', 0)
             if uptime > 3600:
@@ -496,18 +710,18 @@ def status(name):
             else:
                 uptime_str = f"{int(uptime)}s"
             console.print(f"    Uptime: {uptime_str}")
-            
+
             # Health status
             is_healthy = local_status.get('is_healthy', False)
             health_color = "green" if is_healthy else "yellow"
             console.print(f"    Healthy: [{health_color}]{is_healthy}[/{health_color}]")
-            
+
             # Additional info
             if local_status.get('restart_count', 0) > 0:
                 console.print(f"    Restarts: {local_status['restart_count']}")
             if local_status.get('started_at'):
                 console.print(f"    Started: {local_status['started_at']}")
-    
+
     # Try cloud if authenticated
     if client.is_authenticated():
         try:
@@ -632,20 +846,98 @@ def health(watch):
 
 @bot.command()
 @click.argument('name')
-@click.option('--lines', default=50, help='Number of log lines to show')
-@click.option('--follow', is_flag=True, help='Follow log output')
-def logs(name, lines, follow):
-    """View bot logs."""
+@click.option('--lines', '--tail', default=50, help='Number of log lines to show')
+@click.option('--follow', '-f', is_flag=True, help='Follow log output')
+@click.option('--instance', '-i', default=None, type=int, help='Container instance number (for Docker bots)')
+def logs(name, lines, follow, instance):
+    """
+    View bot logs (process or Docker container).
+
+    Automatically detects if the bot is running in Docker containers
+    or as a local process and displays the appropriate logs.
+
+    Examples:
+        multicord bot logs my-bot                      # Last 50 lines
+        multicord bot logs my-bot --follow             # Stream logs live
+        multicord bot logs my-bot --instance 2         # View container instance 2
+        multicord bot logs my-bot -f -i 1              # Follow instance 1 logs
+    """
     manager = BotManager()
+    docker_mgr = DockerManager()
 
     try:
-        if follow:
-            display.info(f"Following logs for '{name}' (Ctrl+C to stop)...")
-            manager.follow_logs(name)
+        # Check for Docker containers first
+        docker_containers = docker_mgr.list_bot_containers(name)
+
+        if docker_containers:
+            # Docker mode
+            if len(docker_containers) > 1 and instance is None:
+                # Multiple containers, user needs to specify which one
+                display.warning(f"Bot '{name}' has {len(docker_containers)} running containers")
+                display.info("Please specify which instance to view with --instance:")
+                for container in docker_containers:
+                    # Extract instance ID from container name (multicord_name_N)
+                    try:
+                        inst_id = int(container.name.split('_')[-1])
+                        status_icon = "🟢" if container.status == "running" else "🔴"
+                        console.print(f"  {status_icon} Instance {inst_id}: {container.name} ({container.status})")
+                    except (ValueError, IndexError):
+                        console.print(f"  • {container.name} ({container.status})")
+                console.print()
+                display.info(f"Example: multicord bot logs {name} --instance 1 --follow")
+                sys.exit(0)
+
+            # Select container
+            if instance is not None:
+                # Find container with matching instance ID (normalize to lowercase)
+                container_name = f"multicord_{name.lower()}_{instance}"
+                selected_container = None
+                for container in docker_containers:
+                    if container.name == container_name:
+                        selected_container = container
+                        break
+
+                if not selected_container:
+                    display.error(f"Container instance {instance} not found for bot '{name}'")
+                    display.info(f"Available instances: {', '.join([c.name.split('_')[-1] for c in docker_containers])}")
+                    sys.exit(1)
+            else:
+                # Single container, use it
+                selected_container = docker_containers[0]
+
+            # Stream Docker logs
+            display.info(f"Viewing logs for container: {selected_container.name}")
+            if follow:
+                display.info("Following logs (Ctrl+C to stop)...")
+            console.print()
+
+            try:
+                for log_line in docker_mgr.get_container_logs(
+                    selected_container.id,
+                    follow=follow,
+                    tail=lines
+                ):
+                    # Docker logs come with timestamps and stream prefixes, print as-is
+                    console.print(log_line, end='')
+
+            except KeyboardInterrupt:
+                console.print("\n[yellow]Stopped following logs[/]")
+
         else:
-            logs = manager.get_logs(name, lines)
-            for line in logs:
-                console.print(line)
+            # Local process mode (file-based logs)
+            if instance is not None:
+                display.warning("--instance flag is only for Docker containers, ignoring")
+
+            if follow:
+                display.info(f"Following logs for '{name}' (Ctrl+C to stop)...")
+                manager.follow_logs(name)
+            else:
+                log_lines = manager.get_logs(name, lines)
+                for line in log_lines:
+                    console.print(line)
+
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Stopped following logs[/]")
     except Exception as e:
         display.error(f"Failed to get logs: {e}")
 

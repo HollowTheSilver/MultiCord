@@ -164,13 +164,13 @@ class BotManager:
                 json.dump(meta_data, f, indent=2)
 
             # Auto-install cogs if specified in template manifest
-            auto_install_cogs = template_info.get("auto_install_cogs", [])
-            if auto_install_cogs:
+            cogs_to_install = template_info.get("requires_cogs", [])
+            if cogs_to_install:
                 print(f"\nAuto-installing cogs for '{template}' template...")
                 template_repo_path = self.template_repo.get_repository_path(repo or "official")
                 cog_repo = CogRepository(template_repo_path)
 
-                for cog_spec in auto_install_cogs:
+                for cog_spec in cogs_to_install:
                     cog_id = cog_spec.get("id")
                     required = cog_spec.get("required", True)
                     reason = cog_spec.get("reason", "")

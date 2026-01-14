@@ -407,25 +407,49 @@ class TemplateRepository:
     # // ========================================( Single-Repo Methods )======================================== // #
 
     def get_manifest(self, repo_name: str = "official") -> Dict[str, Any]:
-        """Get the manifest from a repository."""
+        """Get the v3.0 manifest (multicord.json) from a repository."""
         repo_path = self.repos_dir / repo_name
 
         # Clone or update repository if not exists
         if not repo_path.exists():
             repo_path = self.clone_repository(repo_name)
 
-        manifest_path = repo_path / "manifest.json"
-
+        manifest_path = repo_path / "multicord.json"
         if not manifest_path.exists():
-            raise FileNotFoundError(f"No manifest.json found in repository '{repo_name}'")
+            raise FileNotFoundError(f"No multicord.json found in repository '{repo_name}'")
 
         with open(manifest_path, 'r', encoding='utf-8') as f:
             return json.load(f)
 
     def list_templates(self, repo_name: str = "official") -> Dict[str, Dict]:
-        """List available templates from a repository."""
+        """List available templates from a v3.0 repository."""
         manifest = self.get_manifest(repo_name)
-        return manifest.get("templates", {})
+        repo_path = self.repos_dir / repo_name
+
+        templates = {}
+
+        # Parse items array for template entries (skip "cogs/" entries)
+        for item_path in manifest.get("items", []):
+            if item_path.startswith("cogs/"):
+                continue  # Skip cog items
+
+            # Remove trailing slash and get template name
+            template_name = item_path.rstrip('/')
+            template_dir = repo_path / template_name
+            template_manifest_path = template_dir / "template.json"
+
+            if template_manifest_path.exists():
+                try:
+                    with open(template_manifest_path, 'r', encoding='utf-8') as f:
+                        template_info = json.load(f)
+                        # Use the id from template.json as the key
+                        template_id = template_info.get("id", template_name)
+                        templates[template_id] = template_info
+                except Exception:
+                    # Skip invalid template manifests
+                    continue
+
+        return templates
 
     def get_template_info(self, template_name: str, repo_name: str = "official") -> Optional[Dict]:
         """Get information about a specific template."""
