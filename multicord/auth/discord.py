@@ -10,6 +10,8 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
 import json
 import time
+import secrets
+from html import escape
 from typing import Optional, Dict, Any
 from urllib.parse import parse_qs
 import keyring
@@ -50,12 +52,14 @@ class CallbackHandler(BaseHTTPRequestHandler):
             self.send_response(400)
             self.send_header('Content-Type', 'text/html')
             self.end_headers()
+            # HTML-escape error to prevent XSS
+            safe_error = escape(error)
             self.wfile.write(f"""
                 <html>
                 <head><title>Authentication Failed</title></head>
                 <body style="font-family: sans-serif; text-align: center; padding: 50px;">
                     <h1 style="color: #ff4757;">Authentication Failed</h1>
-                    <p>Error: {error}</p>
+                    <p>Error: {safe_error}</p>
                     <p>Please return to the CLI and try again.</p>
                 </body>
                 </html>
@@ -96,6 +100,7 @@ class DiscordAuth:
     def __init__(self, api_url: str = "http://localhost:8000"):
         self.api_url = api_url
         self.callback_port = 8899  # Local port for callback server
+        self.expected_state = None  # For CSRF protection
 
     def authenticate(self) -> bool:
         """
@@ -118,8 +123,11 @@ class DiscordAuth:
             server_thread.daemon = True
             server_thread.start()
 
+            # Generate CSRF state token
+            self.expected_state = secrets.token_urlsafe(32)
+
             # Open Discord auth in browser
-            auth_url = f"{self.api_url}/v1/auth/discord?redirect_port={self.callback_port}"
+            auth_url = f"{self.api_url}/v1/auth/discord?redirect_port={self.callback_port}&state={self.expected_state}"
             print("\n[AUTH] Opening Discord in your browser for authentication...")
             print(f"   If the browser doesn't open, visit: {auth_url}\n")
             webbrowser.open(auth_url)
@@ -130,6 +138,12 @@ class DiscordAuth:
 
             while time.time() - start_time < timeout:
                 if server.auth_code:
+                    # Validate CSRF state token
+                    if server.state != self.expected_state:
+                        print("[ERROR] State mismatch - possible CSRF attack detected")
+                        server.shutdown()
+                        return False
+
                     # Exchange code for tokens
                     print("[OK] Authorization received, exchanging for tokens...")
                     success = self._exchange_code(server.auth_code, server.state)

@@ -131,7 +131,7 @@ class FileLockingManager:
             elif HAS_MSVCRT:
                 msvcrt.locking(file_handle.fileno(), msvcrt.LK_UNLCK, 1)
             return True
-        except:
+        except (IOError, OSError):
             return False
 
 
@@ -184,7 +184,7 @@ class ProcessRegistry:
                     return None
                 finally:
                     FileLockingManager.release_lock(f)
-        except:
+        except (IOError, OSError, json.JSONDecodeError):
             return None
     
     def list_processes(self) -> List[ProcessInfo]:
@@ -199,7 +199,7 @@ class ProcessRegistry:
                     return [ProcessInfo.from_dict(data) for data in registry.values()]
                 finally:
                     FileLockingManager.release_lock(f)
-        except:
+        except (IOError, OSError, json.JSONDecodeError):
             return []
     
     def remove_process(self, bot_name: str) -> bool:
@@ -221,7 +221,7 @@ class ProcessRegistry:
                     return False
                 finally:
                     FileLockingManager.release_lock(f)
-        except:
+        except (IOError, OSError, json.JSONDecodeError):
             return False
     
     def cleanup_dead_processes(self) -> int:
@@ -232,7 +232,7 @@ class ProcessRegistry:
                 if not psutil.pid_exists(process_info.pid):
                     if self.remove_process(process_info.bot_name):
                         cleaned += 1
-            except:
+            except (psutil.NoSuchProcess, IOError, OSError):
                 pass
         return cleaned
 

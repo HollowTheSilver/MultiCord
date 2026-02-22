@@ -1,6 +1,6 @@
 """
-Cog repository management for MultiCord CLI.
-Handles downloading and managing optional bot cogs from Git repositories.
+Cog management for MultiCord CLI.
+Handles installing and managing optional bot cogs from source repositories.
 Includes dependency resolution for cog-to-cog dependencies.
 """
 
@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any, Set, Tuple
 
 from multicord.utils.venv_manager import VenvManager
+from multicord.utils.validation import validate_path_containment
 
 
 class DependencyError(Exception):
@@ -59,18 +60,18 @@ def version_satisfies(installed_version: str, requirement: str) -> bool:
         return installed == required
 
 
-class CogRepository:
-    """Manages cog repositories and installations."""
+class CogManager:
+    """Manages cog installations and updates."""
 
-    def __init__(self, template_repo_path: Path):
+    def __init__(self, source_path: Path):
         """
-        Initialize cog repository manager.
+        Initialize cog manager.
 
         Args:
-            template_repo_path: Path to the cloned template repository
+            source_path: Path to the source repository containing cogs
         """
-        self.template_repo_path = template_repo_path
-        self.cogs_dir = template_repo_path / "cogs"
+        self.source_path = source_path
+        self.cogs_dir = source_path / "cogs"
         self.venv_manager = VenvManager()
 
     def list_available_cogs(self) -> Dict[str, Dict[str, Any]]:
@@ -80,7 +81,7 @@ class CogRepository:
         Returns:
             Dictionary of cog metadata keyed by cog ID
         """
-        manifest_path = self.template_repo_path / "multicord.json"
+        manifest_path = self.source_path / "multicord.json"
         if not manifest_path.exists():
             return {}
 
@@ -96,7 +97,7 @@ class CogRepository:
 
             # Extract cog name from path
             cog_name = item_path.replace("cogs/", "").rstrip("/")
-            cog_dir = self.template_repo_path / "cogs" / cog_name
+            cog_dir = self.source_path / "cogs" / cog_name
             cog_manifest_path = cog_dir / "cog.json"
 
             if cog_manifest_path.exists():
@@ -131,6 +132,9 @@ class CogRepository:
             Path to the cog directory or None if not found
         """
         cog_path = self.cogs_dir / cog_name
+        is_contained, error = validate_path_containment(cog_path, self.cogs_dir)
+        if not is_contained:
+            raise ValueError(f"Invalid cog name: {error}")
 
         if cog_path.exists() and cog_path.is_dir():
             return cog_path

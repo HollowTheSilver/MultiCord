@@ -1,6 +1,6 @@
 """
-Template update detection for MultiCord CLI.
-Detects available updates for bot templates by comparing versions.
+Source update detection for MultiCord CLI.
+Detects available updates for bot sources by comparing versions.
 """
 
 import json
@@ -10,20 +10,19 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from .version import SemanticVersion, is_newer_version, get_update_type, has_breaking_changes
-from .template_repository import TemplateRepository
+from .source_resolver import SourceResolver
 
 
 @dataclass
 class UpdateInfo:
-    """Information about an available template update."""
+    """Information about an available source update."""
     available: bool
     current_version: Optional[str] = None
     latest_version: Optional[str] = None
     update_type: Optional[str] = None  # "breaking", "feature", "patch", "none"
     breaking_changes: bool = False
     changelog: Optional[Dict[str, str]] = None
-    repository: Optional[str] = None
-    template_name: Optional[str] = None
+    source_name: Optional[str] = None
 
     def __str__(self) -> str:
         if not self.available:
@@ -42,7 +41,7 @@ class UpdateInfo:
 
 
 class UpdateDetector:
-    """Detects template updates by comparing bot metadata with repository manifests."""
+    """Detects source updates by comparing bot metadata with source manifests."""
 
     def __init__(self, bots_dir: Optional[Path] = None):
         """
@@ -52,7 +51,7 @@ class UpdateDetector:
             bots_dir: Directory containing bot instances (default: ~/.multicord/bots)
         """
         self.bots_dir = bots_dir or (Path.home() / ".multicord" / "bots")
-        self.template_repo = TemplateRepository()
+        self.resolver = SourceResolver()
 
     def check_bot_updates(self, bot_name: str) -> Optional[UpdateInfo]:
         """
@@ -73,7 +72,7 @@ class UpdateDetector:
         if not meta_file.exists():
             return UpdateInfo(
                 available=False,
-                template_name=bot_name
+                source_name=bot_name
             )
 
         try:
@@ -82,23 +81,19 @@ class UpdateDetector:
         except Exception:
             return UpdateInfo(available=False)
 
-        template_name = metadata.get('template')
-        repo_name = metadata.get('repository', 'official')
-        current_version = metadata.get('template_version', 'unknown')
+        source_name = metadata.get('source') or metadata.get('template')
+        current_version = metadata.get('source_version') or metadata.get('template_version', 'unknown')
 
-        if not template_name or current_version == 'unknown':
+        if not source_name or current_version == 'unknown':
             return UpdateInfo(available=False)
 
-        # Get latest template info from repository
+        # Get latest source info via resolver
         try:
-            # Update repository to get latest manifest
-            self.template_repo.clone_repository(repo_name, force_update=False)
-
-            template_info = self.template_repo.get_template_info(template_name, repo_name)
-            if not template_info:
+            source_metadata = self.resolver.get_source_metadata(source_name)
+            if not source_metadata:
                 return UpdateInfo(available=False)
 
-            latest_version = template_info.get('version', 'unknown')
+            latest_version = source_metadata.get('version', 'unknown')
 
             # Compare versions
             if latest_version == 'unknown' or current_version == 'unknown':
@@ -114,16 +109,15 @@ class UpdateDetector:
                     latest_version=latest_version,
                     update_type=update_type,
                     breaking_changes=breaking,
-                    changelog=template_info.get('changelog'),
-                    repository=repo_name,
-                    template_name=template_name
+                    changelog=source_metadata.get('changelog'),
+                    source_name=source_name
                 )
             else:
                 return UpdateInfo(
                     available=False,
                     current_version=current_version,
                     latest_version=latest_version,
-                    template_name=template_name
+                    source_name=source_name
                 )
 
         except Exception as e:
