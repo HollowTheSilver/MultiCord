@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 
-MultiCord transforms Discord bot management from chaos to control. Run 10 bots on your laptop or deploy 1000 to the cloud — all with simple, intuitive commands.
+MultiCord transforms Discord bot management from chaos to control. Run 10 bots on your laptop or deploy 1000 to the cloud - all with simple, intuitive commands.
 
 ---
 
@@ -69,7 +69,7 @@ multicord bot status  # Real-time monitoring with health metrics
 
 - **Built-in Sources (Zero Setup)**
   - Official templates and cogs auto-fetched on first use
-  - No import needed for built-ins — just reference by name
+  - No import needed for built-ins - just reference by name
   - Templates: `basic`, `advanced`
   - Cogs: `permissions`, `moderation`, `music`
 
@@ -136,59 +136,59 @@ multicord bot stop --all
 
 MultiCord provides **44 commands** across **8 command groups** plus 1 standalone command.
 
-### Bot Management (`multicord bot`) — 17 commands
+### Bot Management (`multicord bot`) - 17 commands
 
 Complete bot lifecycle management with health monitoring.
 
 #### Create & Import
-- `multicord bot create <name> --from <source>` — Create bot from a source
+- `multicord bot create <name> --from <source>` - Create bot from a source
   - Sources: built-in names (`basic`, `advanced`) or imported repos
   - Automatic: Isolated venv, dependency install, .env creation, auto-cog install
   - **Flags**: `--token` (prompt for Discord token after creation)
 
-- `multicord bot import <source>` — Import an existing bot directly
+- `multicord bot import <source>` - Import an existing bot directly
   - Git URL: Clones repository
   - Local path: Registers in-place (no copying)
   - **Flags**: `--name` (override bot name)
 
 #### Lifecycle
-- `multicord bot run <name> [name2...]` — Run bot(s)
+- `multicord bot run <name> [name2...]` - Run bot(s)
   - **Flags**: `--docker` (force Docker), `--local` (force local process), `--shards N`, `--follow`, `--rebuild`
 
-- `multicord bot stop <name> [name2...]` — Stop bot(s)
+- `multicord bot stop <name> [name2...]` - Stop bot(s)
   - **Flags**: `--all`, `--force`
 
-- `multicord bot restart <name> [name2...]` — Restart bot(s)
+- `multicord bot restart <name> [name2...]` - Restart bot(s)
 
 #### Monitoring
-- `multicord bot list` — List all bots with status
+- `multicord bot list` - List all bots with status
   - **Flags**: `--local`, `--cloud`, `--sync` (merged view), `--status <running|stopped>`
 
-- `multicord bot status <name>` — Detailed status with health metrics
+- `multicord bot status <name>` - Detailed status with health metrics
 
-- `multicord bot health` — Real-time health monitoring dashboard
+- `multicord bot health` - Real-time health monitoring dashboard
   - **Flags**: `--watch` (auto-refresh)
 
-- `multicord bot logs <name>` — View bot logs
+- `multicord bot logs <name>` - View bot logs
   - **Flags**: `--follow`, `--lines <n>`, `--cloud`
 
 #### Token & Config
-- `multicord bot set-token <name>` — Set bot token inline
-- `multicord bot migrate-tokens` — Migrate tokens from .env to secure storage
+- `multicord bot set-token <name>` - Set bot token inline
+- `multicord bot migrate-tokens` - Migrate tokens from .env to secure storage
 
 #### Cloud Operations
-- `multicord bot deploy <name>` — Deploy bot to cloud
-- `multicord bot pull <name>` — Pull cloud config to local
-- `multicord bot sync <name>` — Bidirectional sync
+- `multicord bot deploy <name>` - Deploy bot to cloud
+- `multicord bot pull <name>` - Pull cloud config to local
+- `multicord bot sync <name>` - Bidirectional sync
 
 #### Source Updates
-- `multicord bot check-updates [name]` — Check for source updates
+- `multicord bot check-updates [name]` - Check for source updates
   - **Flags**: `--all` (check all bots)
 
-- `multicord bot update <name>` — Apply source updates
+- `multicord bot update <name>` - Apply source updates
   - **Flags**: `--strategy <core-only|safe-merge|full-replace>`, `--dry-run`, `--version <ver>`
 
-- `multicord bot rollback <name>` — Rollback to previous backup
+- `multicord bot rollback <name>` - Rollback to previous backup
   - **Flags**: `--list`, `--backup <name>`
 
 **Examples**:
@@ -201,16 +201,16 @@ multicord bot update my-bot --strategy safe-merge --dry-run
 
 ---
 
-### Bot Cog Management (`multicord bot cog`) — 5 commands
+### Bot Cog Management (`multicord bot cog`) - 5 commands
 
 Install and manage modular features (cogs) for bots.
 
-- `multicord bot cog available` — List all available cogs
-- `multicord bot cog list <bot>` — Show installed cogs for a bot
-- `multicord bot cog add <cog> <bot>` — Install cog with auto dependency resolution
+- `multicord bot cog available` - List all available cogs
+- `multicord bot cog list <bot>` - Show installed cogs for a bot
+- `multicord bot cog add <cog> <bot>` - Install cog with auto dependency resolution
   - **Flags**: `--no-deps` (skip dependencies)
-- `multicord bot cog remove <cog> <bot>` — Remove cog from bot
-- `multicord bot cog update [cog] <bot>` — Update cog(s) to latest version
+- `multicord bot cog remove <cog> <bot>` - Remove cog from bot
+- `multicord bot cog update [cog] <bot>` - Update cog(s) to latest version
 
 **Examples**:
 ```bash
@@ -221,15 +221,15 @@ multicord bot cog list my-bot
 
 ---
 
-### Source Repository Management (`multicord repo`) — 5 commands
+### Source Repository Management (`multicord repo`) - 5 commands
 
 Manage Git-based sources. Built-in sources are always available without import.
 
-- `multicord repo list` — Show built-in + imported sources
-- `multicord repo import <git-url> --as <name>` — Import Git repository as a reusable source
-- `multicord repo info <name>` — Show source details
-- `multicord repo update <name>` — Pull latest changes (git pull)
-- `multicord repo remove <name>` — Remove imported source
+- `multicord repo list` - Show built-in + imported sources
+- `multicord repo import <git-url> --as <name>` - Import Git repository as a reusable source
+- `multicord repo info <name>` - Show source details
+- `multicord repo update <name>` - Pull latest changes (git pull)
+- `multicord repo remove <name>` - Remove imported source
 
 **Built-in sources** (always available, no import needed):
 | Name | Type | Description |
@@ -249,52 +249,52 @@ multicord bot create my-bot --from cool
 
 ---
 
-### Authentication (`multicord auth`) — 3 commands
+### Authentication (`multicord auth`) - 3 commands
 
-- `multicord auth login` — Login with Discord OAuth2 (auto-detects browser/device flow)
-- `multicord auth logout` — Logout and clear stored tokens
-- `multicord auth status` — Check authentication status with Discord user info
+- `multicord auth login` - Login with Discord OAuth2 (auto-detects browser/device flow)
+- `multicord auth logout` - Logout and clear stored tokens
+- `multicord auth status` - Check authentication status with Discord user info
 
 ---
 
-### Token Management (`multicord token`) — 4 commands
+### Token Management (`multicord token`) - 4 commands
 
-- `multicord token list [bot]` — View all stored credentials
-- `multicord token set <bot>` — Store bot token securely
-- `multicord token delete <bot>` — Remove stored token
-- `multicord token show <bot>` — Display token details (masked)
+- `multicord token list [bot]` - View all stored credentials
+- `multicord token set <bot>` - Store bot token securely
+- `multicord token delete <bot>` - Remove stored token
+- `multicord token show <bot>` - Display token details (masked)
   - **Flags**: `--unmask`
 
 ---
 
-### Virtual Environments (`multicord venv`) — 4 commands
+### Virtual Environments (`multicord venv`) - 4 commands
 
-- `multicord venv install <bot>` — Install/reinstall dependencies
-- `multicord venv clean <bot>` — Remove and recreate venv from scratch
-- `multicord venv update <bot>` — Upgrade all packages to latest
-- `multicord venv info [bot]` — Show venv details (Python version, packages, disk usage)
+- `multicord venv install <bot>` - Install/reinstall dependencies
+- `multicord venv clean <bot>` - Remove and recreate venv from scratch
+- `multicord venv update <bot>` - Upgrade all packages to latest
+- `multicord venv info [bot]` - Show venv details (Python version, packages, disk usage)
   - **Flags**: `--all`
 
 ---
 
-### Cache Management (`multicord cache`) — 3 commands
+### Cache Management (`multicord cache`) - 3 commands
 
-- `multicord cache status` — Show cache statistics
-- `multicord cache clear` — Clear all cached data
-- `multicord cache refresh` — Refresh cache from API
+- `multicord cache status` - Show cache statistics
+- `multicord cache clear` - Clear all cached data
+- `multicord cache refresh` - Refresh cache from API
 
 ---
 
-### Configuration (`multicord config`) — 2 commands
+### Configuration (`multicord config`) - 2 commands
 
-- `multicord config show` — Show current configuration
-- `multicord config set <key> <value>` — Set configuration value
+- `multicord config show` - Show current configuration
+- `multicord config set <key> <value>` - Set configuration value
 
 ---
 
 ### System Health
 
-- `multicord doctor` — Run comprehensive system health check
+- `multicord doctor` - Run comprehensive system health check
 
 ---
 
@@ -354,14 +354,14 @@ Built-in Sources (always available, zero setup)
 
 ### Official Templates
 
-- **basic** — Simple extensible bot with command handling and events
-- **advanced** — Production-ready with sharding, health checks, structured logging
+- **basic** - Simple extensible bot with command handling and events
+- **advanced** - Production-ready with sharding, health checks, structured logging
 
 ### Official Cogs
 
-- **permissions** — Enterprise-grade 9-level permission hierarchy (~2,500 lines)
-- **moderation** — Kick, ban, timeout, warnings, auto-moderation
-- **music** — YouTube integration, queue management, playback controls
+- **permissions** - Enterprise-grade 9-level permission hierarchy (~2,500 lines)
+- **moderation** - Kick, ban, timeout, warnings, auto-moderation
+- **music** - YouTube integration, queue management, playback controls
 
 ### Using Third-Party Sources
 
@@ -456,7 +456,7 @@ pip install -e .
 
 ### Cross-Platform Support
 
-- **Windows** (10, 11) — Primary development platform
+- **Windows** (10, 11) - Primary development platform
 - **Linux** (Ubuntu, Debian, Fedora, Arch)
 - **macOS** (10.15+)
 
@@ -467,7 +467,7 @@ pip install -e .
 | Issue | Solution |
 |-------|----------|
 | Bot won't start | `multicord venv info <bot>` then `multicord venv clean <bot>` |
-| Dependency conflicts | Per-bot venvs handle this — each bot is isolated |
+| Dependency conflicts | Per-bot venvs handle this - each bot is isolated |
 | Source not found | `multicord repo list` to see available sources |
 | Cloud sync fails | `multicord cache status` then `multicord cache refresh` |
 | Port conflicts | MultiCord auto-assigns ports; check with `multicord bot status` |
@@ -490,7 +490,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## License
 
-MIT License — see [LICENSE](LICENSE) for details.
+MIT License - see [LICENSE](LICENSE) for details.
 
 ---
 

@@ -347,6 +347,111 @@ CMD ["python", "bot.py"]
             logger.error(f"Failed to create container: {e}")
             raise
 
+    def create_sharded_containers(
+        self,
+        bot_name: str,
+        image_id: str,
+        shard_count: int,
+        resource_limits: Optional[Dict[str, any]] = None
+    ) -> List[str]:
+        """
+        Create multiple containers for Discord sharding.
+
+        Each shard runs in its own container with a unique SHARD_ID environment
+        variable. Discord.py's AutoShardedBot automatically handles guild distribution
+        across shards using: guild_id % shard_count.
+
+        Args:
+            bot_name: Bot name
+            image_id: Docker image ID or tag
+            shard_count: Total number of shards to create (1-16 recommended)
+            resource_limits: Optional resource limits dict with 'cpus' and 'memory' keys
+
+        Returns:
+            List of container IDs (one per shard)
+
+        Raises:
+            APIError: If any container creation fails (rolls back all containers)
+        """
+        bot_path = self.bots_dir / bot_name
+        logger.info(f"Creating {shard_count} shard containers for '{bot_name}'")
+
+        # Load base environment variables from .env
+        base_env = self._load_bot_env(bot_path)
+        base_env['BOT_NAME'] = bot_name
+
+        # Prepare resource limits once
+        mem_limit = None
+        nano_cpus = None
+        if resource_limits:
+            if 'memory' in resource_limits:
+                mem_limit = resource_limits['memory']
+            if 'cpus' in resource_limits:
+                nano_cpus = int(resource_limits['cpus'] * 1e9)
+
+        container_ids = []
+        created_containers = []  # Track for rollback on failure
+
+        try:
+            for shard_id in range(shard_count):
+                # Create shard-specific environment
+                shard_env = base_env.copy()
+                shard_env['SHARD_ID'] = str(shard_id)
+                shard_env['SHARD_COUNT'] = str(shard_count)
+
+                # Container naming: multicord_botname_shard_0
+                container_name = f"multicord_{bot_name.lower()}_shard_{shard_id}"
+
+                logger.info(f"  Creating shard {shard_id}/{shard_count - 1}: {container_name}")
+
+                # Create container (shared volumes across all shards)
+                container = self.docker_client.client.containers.create(
+                    image=image_id,
+                    name=container_name,
+                    environment=shard_env,
+                    volumes={
+                        str(bot_path / "logs"): {'bind': '/app/logs', 'mode': 'rw'},
+                        str(bot_path / "data"): {'bind': '/app/data', 'mode': 'rw'}
+                    },
+                    network="multicord-network",
+                    mem_limit=mem_limit,
+                    nano_cpus=nano_cpus,
+                    detach=True,
+                    labels={
+                        "managed-by": "multicord",
+                        "bot-name": bot_name,
+                        "shard-id": str(shard_id),
+                        "shard-count": str(shard_count)
+                    }
+                )
+
+                created_containers.append(container)
+                container_ids.append(container.id)
+
+                logger.info(f"  ✓ Created shard {shard_id}: {container.id[:12]}")
+
+            # Start all containers (after all created successfully)
+            for i, container in enumerate(created_containers):
+                container.start()
+                logger.info(f"  ✓ Started shard {i}")
+
+            logger.info(f"✓ All {shard_count} shard containers running")
+            return container_ids
+
+        except APIError as e:
+            # Rollback: Remove any containers that were created
+            logger.error(f"Failed to create shard containers: {e}")
+            logger.info("Rolling back: Removing partially created containers...")
+
+            for container in created_containers:
+                try:
+                    container.remove(force=True)
+                    logger.info(f"  ✓ Removed {container.name}")
+                except Exception as cleanup_error:
+                    logger.warning(f"  Failed to remove {container.name}: {cleanup_error}")
+
+            raise APIError(f"Shard container creation failed: {e}")
+
     def _load_bot_env(self, bot_path: Path) -> Dict[str, str]:
         """Load environment variables from bot's .env file."""
         env_file = bot_path / ".env"
