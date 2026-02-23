@@ -1,17 +1,15 @@
 # MultiCord CLI
 
-**Run Multiple Discord Bots Like a Pro**
-
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 
-MultiCord transforms Discord bot management from chaos to control. Run 10 bots on your laptop or deploy 1000 to the cloud - all with simple, intuitive commands.
+A command-line tool for managing multiple Discord bots with process isolation, dependency management, and deployment capabilities.
 
 ---
 
-## What is MultiCord?
+## Overview
 
-MultiCord is a professional CLI tool for managing multiple Discord bots with complete process isolation, health monitoring, and cloud integration.
+MultiCord simplifies running multiple Discord.py bots locally or deploying them to cloud infrastructure. Each bot runs with isolated dependencies, automatic port assignment, and comprehensive health monitoring.
 
 ### The Problem
 ```bash
