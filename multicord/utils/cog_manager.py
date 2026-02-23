@@ -1,6 +1,6 @@
 """
-Cog repository management for MultiCord CLI.
-Handles downloading and managing optional bot cogs from Git repositories.
+Cog management for MultiCord CLI.
+Handles installing and managing optional bot cogs from source repositories.
 Includes dependency resolution for cog-to-cog dependencies.
 """
 
@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any, Set, Tuple
 
 from multicord.utils.venv_manager import VenvManager
+from multicord.utils.validation import validate_path_containment
 
 
 class DependencyError(Exception):
@@ -59,35 +60,53 @@ def version_satisfies(installed_version: str, requirement: str) -> bool:
         return installed == required
 
 
-class CogRepository:
-    """Manages cog repositories and installations."""
+class CogManager:
+    """Manages cog installations and updates."""
 
-    def __init__(self, template_repo_path: Path):
+    def __init__(self, source_path: Path):
         """
-        Initialize cog repository manager.
+        Initialize cog manager.
 
         Args:
-            template_repo_path: Path to the cloned template repository
+            source_path: Path to the source repository containing cogs
         """
-        self.template_repo_path = template_repo_path
-        self.cogs_dir = template_repo_path / "cogs"
-        self.manifest_path = template_repo_path / "manifest.json"
+        self.source_path = source_path
+        self.cogs_dir = source_path / "cogs"
         self.venv_manager = VenvManager()
 
     def list_available_cogs(self) -> Dict[str, Dict[str, Any]]:
         """
-        List all available cogs from the repository.
+        List all available cogs from the repository (v3.0 format only).
 
         Returns:
             Dictionary of cog metadata keyed by cog ID
         """
-        if not self.manifest_path.exists():
+        manifest_path = self.source_path / "multicord.json"
+        if not manifest_path.exists():
             return {}
 
-        with open(self.manifest_path, 'r', encoding='utf-8') as f:
+        with open(manifest_path, 'r', encoding='utf-8') as f:
             manifest = json.load(f)
 
-        return manifest.get('cogs', {})
+        cogs = {}
+
+        # Parse items array for cog entries like "cogs/permissions/"
+        for item_path in manifest.get("items", []):
+            if not item_path.startswith("cogs/"):
+                continue  # Skip non-cog items
+
+            # Extract cog name from path
+            cog_name = item_path.replace("cogs/", "").rstrip("/")
+            cog_dir = self.source_path / "cogs" / cog_name
+            cog_manifest_path = cog_dir / "cog.json"
+
+            if cog_manifest_path.exists():
+                with open(cog_manifest_path, 'r', encoding='utf-8') as f:
+                    cog_info = json.load(f)
+                    cog_id = cog_info.get("id", cog_name)
+                    cogs[cog_id] = cog_info
+
+        return cogs
 
     def get_cog_metadata(self, cog_name: str) -> Optional[Dict[str, Any]]:
         """
@@ -113,6 +132,9 @@ class CogRepository:
             Path to the cog directory or None if not found
         """
         cog_path = self.cogs_dir / cog_name
+        is_contained, error = validate_path_containment(cog_path, self.cogs_dir)
+        if not is_contained:
+            raise ValueError(f"Invalid cog name: {error}")
 
         if cog_path.exists() and cog_path.is_dir():
             return cog_path
@@ -121,7 +143,7 @@ class CogRepository:
 
     def get_cog_dependencies(self, cog_name: str) -> Dict[str, str]:
         """
-        Get dependencies for a cog from its manifest.
+        Get dependencies for a cog from its cog.json manifest.
 
         Args:
             cog_name: Name of the cog
@@ -133,7 +155,7 @@ class CogRepository:
         if not cog_path:
             return {}
 
-        manifest_file = cog_path / "manifest.json"
+        manifest_file = cog_path / "cog.json"
         if not manifest_file.exists():
             return {}
 
@@ -143,12 +165,12 @@ class CogRepository:
         return manifest.get('dependencies', {})
 
     def get_cog_optional_dependencies(self, cog_name: str) -> Dict[str, str]:
-        """Get optional dependencies for a cog."""
+        """Get optional dependencies for a cog from its cog.json manifest."""
         cog_path = self.get_cog_path(cog_name)
         if not cog_path:
             return {}
 
-        manifest_file = cog_path / "manifest.json"
+        manifest_file = cog_path / "cog.json"
         if not manifest_file.exists():
             return {}
 
@@ -364,7 +386,7 @@ class CogRepository:
 
     def get_installed_cog_info(self, bot_path: Path, cog_name: str) -> Optional[Dict[str, Any]]:
         """
-        Get information about an installed cog.
+        Get information about an installed cog from its cog.json manifest.
 
         Args:
             bot_path: Path to the bot directory
@@ -379,13 +401,12 @@ class CogRepository:
         if not cog_path.exists():
             return None
 
-        # Try to load manifest from installed cog
-        manifest_file = cog_path / "manifest.json"
+        manifest_file = cog_path / "cog.json"
         if manifest_file.exists():
             with open(manifest_file, 'r', encoding='utf-8') as f:
                 return json.load(f)
 
-        # Fallback to basic info
+        # No manifest found, return basic info
         return {
             "name": cog_name,
             "path": str(cog_path),

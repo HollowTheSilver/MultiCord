@@ -1,6 +1,6 @@
 """
-Template update system with multiple update strategies.
-Handles safe bot template updates with backup, rollback, and conflict resolution.
+Bot update system with multiple update strategies.
+Handles safe bot updates with backup, rollback, and conflict resolution.
 """
 
 import shutil
@@ -11,7 +11,7 @@ from dataclasses import dataclass, asdict
 from enum import Enum
 import filecmp
 
-from .template_repository import TemplateRepository
+from .source_resolver import SourceResolver
 from .backup_manager import BackupManager
 from .version import SemanticVersion
 from .config_merger import ConfigMerger
@@ -44,8 +44,8 @@ class UpdateResult:
         return asdict(self)
 
 
-class TemplateUpdater:
-    """Manages template updates with multiple strategies and safety features."""
+class BotUpdater:
+    """Manages bot updates with multiple strategies and safety features."""
 
     # Core files that should always be updated
     CORE_FILES = {
@@ -71,19 +71,19 @@ class TemplateUpdater:
     def __init__(
         self,
         bots_dir: Optional[Path] = None,
-        template_repo: Optional[TemplateRepository] = None,
+        resolver: Optional[SourceResolver] = None,
         backup_manager: Optional[BackupManager] = None
     ):
         """
-        Initialize template updater.
+        Initialize bot updater.
 
         Args:
             bots_dir: Directory containing bot instances
-            template_repo: Template repository manager
+            resolver: Source resolver for fetching updates
             backup_manager: Backup manager instance
         """
         self.bots_dir = bots_dir or (Path.home() / ".multicord" / "bots")
-        self.template_repo = template_repo or TemplateRepository()
+        self.resolver = resolver or SourceResolver()
         self.backup_manager = backup_manager or BackupManager(bots_dir=self.bots_dir)
         self.config_merger = ConfigMerger()
 
@@ -156,14 +156,13 @@ class TemplateUpdater:
                 error_message=f"Failed to read metadata: {e}"
             )
 
-        template_name = metadata.get("template")
-        repo_name = metadata.get("repository", "official")
-        current_version = metadata.get("template_version", "unknown")
+        source_name = metadata.get("source") or metadata.get("template")
+        current_version = metadata.get("source_version") or metadata.get("template_version", "unknown")
 
-        # Get template info from repository
+        # Get source info via resolver
         try:
-            template_info = self.template_repo.get_template_info(template_name, repo_name)
-            if not template_info:
+            source_metadata = self.resolver.get_source_metadata(source_name)
+            if not source_metadata:
                 return UpdateResult(
                     success=False,
                     strategy=strategy.value,
@@ -174,16 +173,16 @@ class TemplateUpdater:
                     files_merged=[],
                     files_skipped=[],
                     conflicts=[],
-                    error_message=f"Template '{template_name}' not found in repository '{repo_name}'"
+                    error_message=f"Source '{source_name}' not found or has no manifest"
                 )
 
-            latest_version = template_info.get("version", "unknown")
+            latest_version = source_metadata.get("version", "unknown")
 
             # Use target_version if specified
             update_version = target_version or latest_version
 
-            # Get template path
-            template_path = self.template_repo.get_template_path(template_name, repo_name)
+            # Get source path (resolve_source handles fetching)
+            template_path = self.resolver.resolve_source(source_name, force_update=True)
 
         except Exception as e:
             return UpdateResult(
@@ -196,7 +195,7 @@ class TemplateUpdater:
                 files_merged=[],
                 files_skipped=[],
                 conflicts=[],
-                error_message=f"Failed to fetch template: {e}"
+                error_message=f"Failed to fetch source: {e}"
             )
 
         # Create backup before update (unless dry run)
@@ -246,7 +245,7 @@ class TemplateUpdater:
 
             # Update metadata (unless dry run)
             if not dry_run:
-                metadata["template_version"] = update_version
+                metadata["source_version"] = update_version
                 metadata["last_updated"] = __import__('datetime').datetime.now().isoformat()
                 with open(meta_file, 'w', encoding='utf-8') as f:
                     json.dump(metadata, f, indent=2)

@@ -37,6 +37,9 @@ dependencies = [
     "psutil>=5.9.0",
     "aiofiles>=23.0.0",
     "toml>=0.10.0",
+    "cryptography>=41.0.0",
+    "jsonschema>=4.17.0",
+    "docker>=7.0.0",
 ]
 
 [project.optional-dependencies]

@@ -11,6 +11,7 @@ import keyring
 import json
 from functools import wraps
 from multicord.utils.cache import CacheManager
+from multicord.utils.validation import validate_api_url_https
 
 
 def handle_network_errors(offline_return=None):
@@ -47,7 +48,14 @@ class APIClient:
     
     def __init__(self, api_url: Optional[str] = None):
         self.api_url = api_url or "http://localhost:8000"  # Default to local dev
-        self.client = httpx.Client(timeout=30.0)
+
+        # Enforce HTTPS for non-localhost API URLs
+        is_valid, error_msg = validate_api_url_https(self.api_url)
+        if not is_valid:
+            raise ValueError(f"Insecure API URL: {error_msg}")
+
+        # Explicitly verify SSL certificates (never disable)
+        self.client = httpx.Client(timeout=30.0, verify=True)
         self._offline_mode = False
         self._last_network_check = 0
         self._network_check_interval = 60  # Check network every 60 seconds
@@ -122,7 +130,8 @@ class APIClient:
             if expiry and int(expiry) < int(time.time()):
                 # Token expired, try to refresh
                 return self._refresh_token()
-        except:
+        except (ValueError, TypeError, KeyError):
+            # Invalid expiry format, treat as expired
             pass
             
         return True
@@ -144,9 +153,10 @@ class APIClient:
                 tokens = response.json()
                 self._store_tokens(tokens)
                 return True
-        except:
+        except (httpx.RequestError, httpx.HTTPStatusError, ValueError, KeyError):
+            # Network error, invalid response, or missing keys
             pass
-            
+
         return False
     
     def logout(self) -> bool:
@@ -156,7 +166,8 @@ class APIClient:
             keyring.delete_password(self.SERVICE_NAME, self.REFRESH_TOKEN_KEY)
             keyring.delete_password(self.SERVICE_NAME, self.TOKEN_EXPIRY_KEY)
             return True
-        except:
+        except (keyring.errors.PasswordDeleteError, keyring.errors.KeyringError):
+            # Token might not exist or keyring unavailable
             return False
     
     @handle_network_errors(offline_return=None)
@@ -287,7 +298,8 @@ class APIClient:
             response = self.client.get(f"{self.api_url}/health", timeout=5.0)
             self._set_offline_mode(False)
             return response.status_code == 200
-        except:
+        except (httpx.RequestError, httpx.TimeoutException):
+            # Network unavailable or timeout
             self._set_offline_mode(True)
             return False
     

@@ -1,5 +1,5 @@
 """
-Bot backup and restore system for safe template updates.
+Bot backup and restore system for safe source updates.
 Provides automatic backups before updates with compression and rotation.
 """
 
@@ -99,8 +99,8 @@ class BackupManager:
                 try:
                     with open(meta_file, 'r', encoding='utf-8') as f:
                         meta = json.load(f)
-                        template = meta.get("template", "unknown")
-                        template_version = meta.get("template_version", "unknown")
+                        template = meta.get("source") or meta.get("template", "unknown")
+                        template_version = meta.get("source_version") or meta.get("template_version", "unknown")
                 except Exception:
                     pass
 

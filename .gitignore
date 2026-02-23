@@ -128,3 +128,6 @@ AWS_DEPLOYMENT.md
 AWS_DEPLOYMENT_HYBRID.md
 DEPLOYMENT_GUIDE.md
 CRITICAL_REFACTOR.md
+
+# Claude Code temporary files
+tmpclaude-*

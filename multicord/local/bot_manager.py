@@ -12,10 +12,10 @@ from datetime import datetime
 from .process_orchestrator import ProcessOrchestrator, ProcessStatus
 from .health_monitor import HealthMonitor
 from multicord.utils.sync import ConfigSync
-from multicord.utils.template_repository import TemplateRepository
 from multicord.utils.venv_manager import VenvManager
-from multicord.utils.cog_repository import CogRepository
+from multicord.utils.cog_manager import CogManager
 from multicord.utils.token_manager import TokenManager
+from multicord.utils.validation import validate_path_containment
 
 
 class BotManager:
@@ -24,18 +24,13 @@ class BotManager:
     def __init__(self):
         self.config_dir = Path.home() / ".multicord"
         self.bots_dir = self.config_dir / "bots"
-        self.templates_dir = self.config_dir / "templates"
 
         # Ensure directories exist
         self.bots_dir.mkdir(parents=True, exist_ok=True)
-        self.templates_dir.mkdir(parents=True, exist_ok=True)
 
         # Initialize orchestrator and health monitor
         self.orchestrator = ProcessOrchestrator(bots_dir=self.bots_dir)
         self.health_monitor = HealthMonitor(self.orchestrator)
-
-        # Initialize template repository manager
-        self.template_repo = TemplateRepository()
 
         # Initialize virtual environment manager
         self.venv_manager = VenvManager(bots_dir=self.bots_dir)
@@ -72,22 +67,22 @@ class BotManager:
                         memory_mb = 0
                         cpu_percent = 0
                     
-                    # Check if template metadata exists
-                    template = "unknown"
+                    # Check if source metadata exists
+                    source = "unknown"
                     meta_file = bot_dir / ".multicord_meta.json"
                     if meta_file.exists():
                         try:
                             with open(meta_file, encoding='utf-8') as f:
                                 meta = json.load(f)
-                                template = meta.get("template", "unknown")
+                                source = meta.get("source") or meta.get("template", "unknown")
                         except:
                             pass
-                    
+
                     if status is None or status == "all" or status == bot_status:
                         bots.append({
                             "name": bot_name,
                             "status": bot_status,
-                            "template": template,
+                            "template": source,
                             "pid": pid,
                             "port": port,
                             "memory_mb": memory_mb,
@@ -95,43 +90,38 @@ class BotManager:
                         })
         return bots
     
-    def create_bot(self, name: str, template: str, repo: Optional[str] = None) -> Path:
+    def create_bot_from_path(self, name: str, source_path: Path, source_name: str = "unknown") -> Path:
         """
-        Create a new bot from template repository.
+        Create a new bot from a pre-resolved source path.
+
+        This method works with the SourceResolver pattern, where the source
+        (template or imported repo) has already been resolved to a local path.
 
         Args:
             name: Bot name to create
-            template: Template name to use
-            repo: Specific repository to use, or None to auto-detect by priority
+            source_path: Path to the source directory (template or repo)
+            source_name: Name of the source for metadata tracking
 
         Returns:
             Path to created bot directory
         """
         bot_path = self.bots_dir / name
+        is_contained, error = validate_path_containment(bot_path, self.bots_dir)
+        if not is_contained:
+            raise ValueError(f"Invalid bot name: {error}")
         if bot_path.exists():
             raise ValueError(f"Bot '{name}' already exists")
 
-        # Find template using priority system if repo not specified
-        if repo is None:
-            template_match = self.template_repo.find_template(template)
-            if not template_match:
-                raise ValueError(
-                    f"Template '{template}' not found in any enabled repository. "
-                    f"Run 'multicord template list' to see available templates or "
-                    f"'multicord repo update --all' to refresh repositories."
-                )
-            repo, template_info = template_match
-        else:
-            # Use specific repository
-            template_info = self.template_repo.get_template_info(template, repo)
-            if not template_info:
-                raise ValueError(f"Template '{template}' not found in repository '{repo}'")
-
-        # Install template from repository
         try:
-            self.template_repo.install_template(template, bot_path, repo)
+            # Copy source files to bot directory
+            shutil.copytree(source_path, bot_path, dirs_exist_ok=True)
 
-            # Auto-create .env file from .env.example (v2.0.0+ templates)
+            # Remove .git directory if present (don't carry over source's git history)
+            git_dir = bot_path / ".git"
+            if git_dir.exists():
+                shutil.rmtree(git_dir)
+
+            # Auto-create .env file from .env.example
             env_example = bot_path / ".env.example"
             env_file = bot_path / ".env"
             if env_example.exists() and not env_file.exists():
@@ -151,42 +141,82 @@ class BotManager:
                 if not install_success:
                     raise RuntimeError(f"Failed to install requirements: {install_msg}")
 
+            # Read source metadata if available
+            source_version = "unknown"
+            requires_cogs = []
+
+            # Check for v3.0 template.json manifest
+            template_manifest = source_path / "template.json"
+            if template_manifest.exists():
+                try:
+                    with open(template_manifest, encoding='utf-8') as f:
+                        manifest_data = json.load(f)
+                        source_version = manifest_data.get("version", "unknown")
+                        requires_cogs = manifest_data.get("requires_cogs", [])
+                except (json.JSONDecodeError, IOError):
+                    pass
+
+            # Fall back to legacy manifest.json
+            if source_version == "unknown":
+                legacy_manifest = source_path / "manifest.json"
+                if legacy_manifest.exists():
+                    try:
+                        with open(legacy_manifest, encoding='utf-8') as f:
+                            manifest_data = json.load(f)
+                            source_version = manifest_data.get("version", "unknown")
+                            # Legacy format uses auto_install_cogs
+                            requires_cogs = manifest_data.get("auto_install_cogs", [])
+                    except (json.JSONDecodeError, IOError):
+                        pass
+
             # Create metadata file with version tracking
             meta_file = bot_path / ".multicord_meta.json"
             meta_data = {
-                "template": template,
-                "repository": repo,
-                "template_version": template_info.get("version", "unknown"),
+                "source": source_name,
+                "source_version": source_version,
                 "created_at": datetime.now().isoformat(),
-                "multicord_version": "1.0.0"
+                "multicord_version": "3.0.0"
             }
             with open(meta_file, 'w', encoding='utf-8') as f:
                 json.dump(meta_data, f, indent=2)
 
-            # Auto-install cogs if specified in template manifest
-            auto_install_cogs = template_info.get("auto_install_cogs", [])
-            if auto_install_cogs:
-                print(f"\nAuto-installing cogs for '{template}' template...")
-                template_repo_path = self.template_repo.get_repository_path(repo or "official")
-                cog_repo = CogRepository(template_repo_path)
+            # Auto-install required cogs if specified
+            if requires_cogs:
+                print(f"\nAuto-installing cogs for '{source_name}'...")
+                from multicord.utils.source_resolver import SourceResolver
+                resolver = SourceResolver()
 
-                for cog_spec in auto_install_cogs:
-                    cog_id = cog_spec.get("id")
-                    required = cog_spec.get("required", True)
-                    reason = cog_spec.get("reason", "")
+                for cog_spec in requires_cogs:
+                    # Handle both string and dict formats
+                    if isinstance(cog_spec, str):
+                        cog_id = cog_spec
+                        required = True
+                        reason = ""
+                    else:
+                        cog_id = cog_spec.get("id")
+                        required = cog_spec.get("required", True)
+                        reason = cog_spec.get("reason", "")
 
                     try:
                         print(f"  Installing cog '{cog_id}'... ", end="", flush=True)
-                        cog_repo.install_cog(bot_path, cog_id)
-                        print(f"✓ Installed ({reason})")
+                        # Resolve cog source path
+                        cog_source_path = resolver.resolve_source(cog_id)
+                        # Copy cog to bot's cogs directory
+                        cog_dest = bot_path / "cogs" / cog_id
+                        cog_dest.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copytree(cog_source_path, cog_dest, dirs_exist_ok=True)
+                        # Install cog requirements if any
+                        cog_requirements = cog_dest / "requirements.txt"
+                        if cog_requirements.exists():
+                            self.venv_manager.install_requirements(bot_path, cog_requirements)
+                        msg = f"✓ Installed"
+                        if reason:
+                            msg += f" ({reason})"
+                        print(msg)
                     except Exception as cog_error:
                         if required:
-                            # Required cog failed - abort bot creation
-                            raise RuntimeError(
-                                f"Failed to install required cog '{cog_id}': {cog_error}"
-                            )
+                            raise RuntimeError(f"Failed to install required cog '{cog_id}': {cog_error}")
                         else:
-                            # Optional cog failed - continue with warning
                             print(f"⚠ Failed (optional): {cog_error}")
 
             # Create logs directory
@@ -201,8 +231,8 @@ class BotManager:
             # Clean up on failure
             if bot_path.exists():
                 shutil.rmtree(bot_path)
-            raise RuntimeError(f"Failed to create bot from template: {e}")
-    
+            raise RuntimeError(f"Failed to create bot from source: {e}")
+
     def start_bot(self, name: str, env_vars: Optional[Dict[str, str]] = None) -> int:
         """
         Start a bot process using orchestrator.
@@ -295,59 +325,6 @@ class BotManager:
         # TODO: Implement log following
         print(f"Following logs for {name}...")
     
-    def list_templates(self) -> List[Dict[str, str]]:
-        """List available templates."""
-        templates = []
-        
-        # Check builtin templates directory
-        templates_dir = Path(__file__).parent.parent.parent / "templates"
-        if templates_dir.exists():
-            for template_dir in templates_dir.iterdir():
-                if template_dir.is_dir():
-                    # Try to read template description from config
-                    description = "Custom template"
-                    config_file = template_dir / "config.toml"
-                    if config_file.exists():
-                        try:
-                            import toml
-                            with open(config_file, encoding='utf-8') as f:
-                                config = toml.load(f)
-                                description = config.get("bot", {}).get("description", description)
-                        except:
-                            pass
-                    
-                    templates.append({
-                        "name": template_dir.name,
-                        "description": description,
-                        "type": "builtin"
-                    })
-        
-        # Check user templates in templates directory
-        user_templates_dir = self.templates_dir
-        if user_templates_dir.exists():
-            for template_dir in user_templates_dir.iterdir():
-                if template_dir.is_dir():
-                    templates.append({
-                        "name": template_dir.name,
-                        "description": "User template",
-                        "type": "user"
-                    })
-        
-        # If no templates found, return defaults
-        if not templates:
-            templates = [
-                {"name": "basic", "description": "Basic Discord bot", "type": "builtin"},
-                {"name": "music", "description": "Music bot template", "type": "builtin"},
-                {"name": "moderation", "description": "Moderation bot template", "type": "builtin"}
-            ]
-        
-        return templates
-    
-    def install_template(self, url: str, name: Optional[str] = None) -> str:
-        """Install a template from URL."""
-        # TODO: Implement template installation
-        return name or "custom"
-
     def export_bot_for_deploy(self, bot_name: str) -> Optional[Dict[str, Any]]:
         """Export bot configuration and metadata for cloud deployment."""
         bot_path = self.bots_dir / bot_name
@@ -362,21 +339,21 @@ class BotManager:
         if not config:
             return None
 
-        # Get template info from metadata
-        template = "custom"
+        # Get source info from metadata
+        source = "custom"
         meta_file = bot_path / ".multicord_meta.json"
         if meta_file.exists():
             try:
                 with open(meta_file, encoding='utf-8') as f:
                     meta = json.load(f)
-                    template = meta.get("template", "custom")
+                    source = meta.get("source") or meta.get("template", "custom")
             except:
                 pass
 
         # Build deployment package
         deploy_package = {
             "name": bot_name,
-            "template": template,
+            "template": source,
             "config": config,
             "metadata": {
                 "exported_at": datetime.utcnow().isoformat(),

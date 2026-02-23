@@ -11,12 +11,32 @@ import sys
 
 from multicord.api.client import APIClient
 from multicord.local.bot_manager import BotManager
+from multicord.docker import DockerManager
 from multicord.utils.config import ConfigManager
 from multicord.utils.display import Display
 from multicord.utils.errors import handle_error, FriendlyError, NetworkError, AuthenticationError
+from multicord.utils.validation import validate_bot_name, validate_cog_name
 
 console = Console()
 display = Display()
+
+
+def validate_bot_name_callback(ctx, param, value):
+    """Click callback to validate bot name."""
+    if value:
+        is_valid, error_msg = validate_bot_name(value)
+        if not is_valid:
+            raise click.BadParameter(error_msg)
+    return value
+
+
+def validate_cog_name_callback(ctx, param, value):
+    """Click callback to validate cog name."""
+    if value:
+        is_valid, error_msg = validate_cog_name(value)
+        if not is_valid:
+            raise click.BadParameter(error_msg)
+    return value
 
 
 @click.group(invoke_without_command=True)
@@ -119,17 +139,6 @@ def logout(api_url):
     display.success("Successfully logged out")
 
 
-@auth.command()
-def status():
-    """Check authentication status."""
-    client = APIClient()
-    
-    if client.is_authenticated():
-        display.success("Authenticated with MultiCord cloud")
-        # Show user info if available
-    else:
-        display.info("Not authenticated - local mode only")
-
 
 @cli.group()
 def bot():
@@ -156,7 +165,7 @@ def list(local, cloud, sync, status):
     table.add_column("Name", style="cyan")
     table.add_column("Status", style="green")
     table.add_column("Location", style="yellow")
-    table.add_column("Port/Template")
+    table.add_column("Port/Source")
     table.add_column("CPU %", justify="right")
     table.add_column("Memory MB", justify="right")
     table.add_column("PID/ID")
@@ -219,11 +228,11 @@ def list(local, cloud, sync, status):
         status_color = "green" if bot.get('status') == "running" else "red"
         location = bot.get('location', 'Unknown')
 
-        # Determine what to show in Port/Template column
+        # Determine what to show in Port/Source column
         if bot.get('source') == 'local':
-            port_template = str(bot.get('port', '-'))
+            port_or_source = str(bot.get('port', '-'))
         else:
-            port_template = bot.get('template', '-')
+            port_or_source = bot.get('template', '-')
 
         # Determine PID/ID
         if bot.get('source') == 'local':
@@ -237,7 +246,7 @@ def list(local, cloud, sync, status):
             bot_name,
             f"[{status_color}]{bot.get('status', 'unknown')}[/]",
             location,
-            port_template,
+            port_or_source,
             f"{bot.get('cpu_percent', 0):.1f}" if bot.get('status') == "running" and bot.get('source') == 'local' else "-",
             f"{bot.get('memory_mb', 0):.1f}" if bot.get('status') == "running" and bot.get('source') == 'local' else "-",
             pid_id
@@ -255,20 +264,25 @@ def list(local, cloud, sync, status):
 
 
 @bot.command()
-@click.argument('name')
-@click.option('--template', default='basic', help='Bot template to use')
+@click.argument('name', callback=validate_bot_name_callback)
+@click.option('--from', 'source', default='basic', help='Source to create from (template name or imported repo)')
 @click.option('--cloud', is_flag=True, help='Create in cloud instead of locally')
-@click.option('--repo', help='Specific repository to use (default: auto-detect by priority)')
 @click.option('--token', 'set_token_flag', is_flag=True, help='Prompt for Discord token after creation')
-def create(name, template, cloud, repo, set_token_flag):
-    """Create a new bot from template.
+def create(name, source, cloud, set_token_flag):
+    """Create a new bot from a source (template or imported repo).
+
+    Sources can be:
+      - Built-in templates: basic, advanced (auto-fetched on first use)
+      - Imported repos: Use 'multicord repo import' to add custom sources
 
     Examples:
-        multicord bot create my-bot                      # Basic creation
-        multicord bot create my-bot --template moderation  # With template
-        multicord bot create my-bot --token              # Create and set token
+        multicord bot create my-bot                  # From 'basic' (default)
+        multicord bot create my-bot --from advanced  # From 'advanced' template
+        multicord bot create my-bot --from my-repo   # From imported repo
+        multicord bot create my-bot --token          # Create and set token
     """
     import getpass
+    from multicord.utils.source_resolver import SourceResolver
 
     if cloud:
         client = APIClient()
@@ -279,34 +293,34 @@ def create(name, template, cloud, repo, set_token_flag):
         if set_token_flag:
             display.warning("--token flag is only supported for local bots")
 
-        display.info(f"Creating cloud bot '{name}' from template '{template}'...")
+        display.info(f"Creating cloud bot '{name}' from '{source}'...")
         try:
-            bot = client.create_bot(name, template)
+            bot = client.create_bot(name, source)
             display.success(f"Cloud bot created: {bot['id']}")
         except Exception as e:
             display.error(f"Failed to create cloud bot: {e}")
             sys.exit(1)
     else:
         manager = BotManager()
+        resolver = SourceResolver()
 
-        # Show which repository will be used
-        if repo:
-            display.info(f"Creating local bot '{name}' from template '{template}' (repository: {repo})...")
-        else:
-            display.info(f"Creating local bot '{name}' from template '{template}' (auto-detecting repository)...")
+        # Resolve source to local path (auto-fetches if needed)
+        display.info(f"Creating local bot '{name}' from '{source}'...")
 
         try:
-            bot_path = manager.create_bot(name, template, repo=repo)
+            # SourceResolver handles lazy-fetch for built-ins and imported repo lookup
+            source_path = resolver.resolve_source(source)
+            bot_path = manager.create_bot_from_path(name, source_path, source_name=source)
 
-            # Show success with repository info
+            # Show success with source info
             meta_file = bot_path / ".multicord_meta.json"
             if meta_file.exists():
                 import json
                 with open(meta_file) as f:
                     meta = json.load(f)
-                    used_repo = meta.get('repository', 'unknown')
-                    template_version = meta.get('template_version', 'unknown')
-                    display.success(f"Bot created from '{used_repo}' repository (v{template_version})")
+                    used_source = meta.get('source', 'unknown')
+                    source_version = meta.get('source_version', 'unknown')
+                    display.success(f"Bot created from '{used_source}' (v{source_version})")
             else:
                 display.success(f"Bot created at: {bot_path}")
 
@@ -334,7 +348,7 @@ def create(name, template, cloud, repo, set_token_flag):
                     display.error(f"Failed to store token: {e}")
 
             # Show start command hint
-            console.print(f"\n[yellow]Start with:[/] multicord bot start {name}")
+            console.print(f"\n[yellow]Run with:[/] multicord bot run {name}")
             if token_stored:
                 console.print(f"[dim]Tip: Use --follow to watch logs in real-time[/]")
 
@@ -344,20 +358,36 @@ def create(name, template, cloud, repo, set_token_flag):
 
 
 @bot.command()
-@click.argument('names', nargs=-1, required=True)
-@click.option('--cloud', is_flag=True, help='Start cloud bot')
-@click.option('--env', '-e', multiple=True, help='Environment variables (KEY=VALUE format, can be used multiple times)')
-@click.option('--follow', is_flag=True, help='Follow logs after starting (only for single bot)')
-def start(names, cloud, env, follow):
+@click.argument('name', required=True)
+@click.option('--docker', 'mode_docker', is_flag=True, help='Force Docker container mode')
+@click.option('--local', 'mode_local', is_flag=True, help='Force local process mode')
+@click.option('--shards', '-s', default=1, type=int, help='Number of shards (Docker mode, 2500+ guilds)')
+@click.option('--rebuild', is_flag=True, help='Force rebuild Docker image (Docker mode)')
+@click.option('--env', '-e', multiple=True, help='Environment variables (KEY=VALUE)')
+@click.option('--follow', is_flag=True, help='Follow logs after starting')
+def run(name, mode_docker, mode_local, shards, rebuild, env, follow):
     """
-    Start one or more bots.
+    Run a bot locally or in Docker.
 
-    You can inject environment variables using --env:
-        multicord bot start my-bot --env DISCORD_TOKEN=xxx --env LOG_LEVEL=DEBUG
+    By default, auto-detects the best mode:
+      - Docker mode if Dockerfile exists and Docker is available
+      - Local process mode otherwise
 
-    Use --follow to watch logs in real-time after starting:
-        multicord bot start my-bot --follow
+    Use --docker or --local to force a specific mode.
+
+    Examples:
+        multicord bot run my-bot                # Auto-detect mode
+        multicord bot run my-bot --local        # Force local process
+        multicord bot run my-bot --docker       # Force Docker container
+        multicord bot run my-bot --shards 4     # Docker with 4 shards
+        multicord bot run my-bot --follow       # Follow logs after starting
+        multicord bot run my-bot --env LOG_LEVEL=DEBUG
     """
+    # Validate mutually exclusive flags
+    if mode_docker and mode_local:
+        display.error("Cannot use both --docker and --local")
+        sys.exit(1)
+
     # Parse environment variables
     env_vars = {}
     if env:
@@ -368,58 +398,184 @@ def start(names, cloud, env, follow):
             else:
                 display.warning(f"Ignoring invalid environment variable format: {env_arg}")
 
-    if cloud:
-        client = APIClient()
-        if not client.is_authenticated():
-            display.error("Please login first: multicord auth login")
+    manager = BotManager()
+
+    # Validate bot exists
+    bot_path = manager.bots_dir / name
+    if not bot_path.exists():
+        display.error(f"Bot '{name}' does not exist")
+        display.info(f"Create it with: multicord bot create {name} --from <source>")
+        sys.exit(1)
+
+    # Determine mode: explicit flag, or auto-detect
+    use_docker = False
+    if mode_docker:
+        use_docker = True
+    elif mode_local:
+        use_docker = False
+    else:
+        # Auto-detect: use Docker if Dockerfile exists and Docker is available
+        dockerfile_exists = (bot_path / "Dockerfile").exists()
+        docker_available = False
+        if dockerfile_exists:
+            try:
+                docker_mgr = DockerManager()
+                docker_available = True
+            except Exception:
+                pass
+        use_docker = dockerfile_exists and docker_available
+
+    if use_docker:
+        # ═══════════════════════════════════════════════════════════════
+        # DOCKER MODE
+        # ═══════════════════════════════════════════════════════════════
+        try:
+            docker_mgr = DockerManager()
+        except Exception as e:
+            display.error(f"Docker not available: {e}")
+            display.info("Use --local to run as a local process instead")
             sys.exit(1)
 
-        if env_vars:
-            display.warning("Environment variables are ignored for cloud bots")
+        # Validate shards
+        if shards < 1:
+            display.error("Shards must be at least 1")
+            sys.exit(1)
 
+        if shards > 16:
+            display.error("Shards cannot exceed 16 (Discord limitation)")
+            display.info("For larger deployments, contact Discord for increased shard limits")
+            sys.exit(1)
+
+        if shards > 1:
+            display.info(f"Running bot '{name}' with {shards} shards in Docker...")
+        else:
+            display.info(f"Running bot '{name}' in Docker...")
+
+        # Build or rebuild Docker image (tag must be lowercase)
+        tag = f"multicord/{name.lower()}:latest"
+
+        # Check if image exists
+        try:
+            existing_images = docker_mgr.docker_client.client.images.list(name=tag)
+            image_exists = len(existing_images) > 0
+        except Exception:
+            image_exists = False
+
+        if rebuild or not image_exists:
+            action = "Rebuilding" if rebuild else "Building"
+            display.info(f"{action} Docker image for '{name}'...")
+            try:
+                image_id = docker_mgr.build_image(bot_path, tag=tag, show_progress=True)
+                console.print()  # Newline after progress
+            except Exception as e:
+                display.error(f"Failed to build Docker image: {e}")
+                sys.exit(1)
+        else:
+            display.info(f"Using existing Docker image: {tag}")
+
+        # Check for existing containers and clean them up
+        existing_containers = docker_mgr.list_bot_containers(name)
+        if existing_containers:
+            display.info(f"Found {len(existing_containers)} existing container(s), removing them...")
+            for container in existing_containers:
+                try:
+                    if container.status == "running":
+                        docker_mgr.stop_container(container.id, timeout=10)
+                    docker_mgr.remove_container(container.id, force=True)
+                    display.success(f"✓ Removed container: {container.name}")
+                except Exception as cleanup_error:
+                    display.warning(f"Failed to remove container {container.name}: {cleanup_error}")
+
+        # Create and start containers (sharded or single)
+        if shards > 1:
+            display.info(f"Creating {shards} shard containers...")
+            try:
+                container_ids = docker_mgr.create_sharded_containers(
+                    bot_name=name,
+                    image_id=tag,
+                    shard_count=shards,
+                    resource_limits=None
+                )
+                console.print()
+                display.success(f"✓ Bot '{name}' is now running with {shards} shards")
+                display.info(f"View status: multicord bot status {name}")
+                display.info(f"View logs: multicord bot logs {name} --follow")
+                display.info(f"Stop: multicord bot stop {name}")
+            except Exception as e:
+                display.error(f"Failed to create sharded containers: {e}")
+                sys.exit(1)
+        else:
+            display.info("Creating container...")
+            try:
+                container_id = docker_mgr.create_container(
+                    bot_name=name,
+                    image_id=tag,
+                    instance_id=1,
+                    env_vars=env_vars if env_vars else None,
+                    resource_limits=None
+                )
+                docker_mgr.start_container(container_id)
+                console.print()
+                display.success(f"✓ Bot '{name}' is now running in Docker")
+                display.info(f"View logs: multicord bot logs {name} --follow")
+                display.info(f"Stop: multicord bot stop {name}")
+            except Exception as e:
+                display.error(f"Failed to start container: {e}")
+                sys.exit(1)
+
+        if shards > 1:
+            display.info("All containers share multicord-network for communication")
+
+        # Follow logs if requested (Docker mode)
         if follow:
-            display.warning("--follow is not supported for cloud bots")
-
-        for name in names:
+            import time
+            time.sleep(1)  # Brief pause to let container initialize
+            console.print()
+            display.info(f"Following logs for '{name}' (Ctrl+C to stop)...")
             try:
-                display.info(f"Starting cloud bot '{name}'...")
-                result = client.start_bot(name)
-                display.success(f"Cloud bot '{name}' starting on node {result['node']['name']}")
+                docker_mgr.follow_logs(name)
+            except KeyboardInterrupt:
+                console.print("\n[yellow]Stopped following logs[/]")
             except Exception as e:
-                display.error(f"Failed to start cloud bot '{name}': {e}")
+                display.warning(f"Could not follow logs: {e}")
+
     else:
-        manager = BotManager()
+        # ═══════════════════════════════════════════════════════════════
+        # LOCAL PROCESS MODE
+        # ═══════════════════════════════════════════════════════════════
+        if shards > 1:
+            display.warning("--shards is only supported in Docker mode, ignoring")
 
-        # Validate --follow usage
-        if follow and len(names) > 1:
-            display.warning("--follow only works with a single bot, ignoring for multiple bots")
-            follow = False
+        if rebuild:
+            display.warning("--rebuild is only supported in Docker mode, ignoring")
 
-        for name in names:
-            try:
-                display.info(f"Starting local bot '{name}'...")
-                if env_vars:
-                    display.info(f"  Injecting {len(env_vars)} environment variable(s)")
-                pid = manager.start_bot(name, env_vars=env_vars)
-                # Get status to show port
-                status = manager.get_bot_status(name)
-                if status and status.get('port'):
-                    display.success(f"Bot '{name}' started with PID {pid} on port {status['port']}")
-                else:
-                    display.success(f"Bot '{name}' started with PID {pid}")
-            except Exception as e:
-                display.error(f"Failed to start bot '{name}': {e}")
-                if follow:
-                    sys.exit(1)  # Exit if we can't start the bot we're supposed to follow
+        display.info(f"Running bot '{name}' as local process...")
+        if env_vars:
+            display.info(f"  Injecting {len(env_vars)} environment variable(s)")
 
-        # Follow logs if requested (only for single bot)
-        if follow and len(names) == 1:
+        try:
+            pid = manager.start_bot(name, env_vars=env_vars)
+            status = manager.get_bot_status(name)
+            if status and status.get('port'):
+                display.success(f"✓ Bot '{name}' started with PID {pid} on port {status['port']}")
+            else:
+                display.success(f"✓ Bot '{name}' started with PID {pid}")
+
+            display.info(f"View logs: multicord bot logs {name} --follow")
+            display.info(f"Stop: multicord bot stop {name}")
+
+        except Exception as e:
+            display.error(f"Failed to start bot: {e}")
+            sys.exit(1)
+
+        # Follow logs if requested (local mode)
+        if follow:
             import time
             time.sleep(0.5)  # Brief pause to let bot initialize
             console.print()
-            display.info(f"Following logs for '{names[0]}' (Ctrl+C to stop)...")
+            display.info(f"Following logs for '{name}' (Ctrl+C to stop)...")
             try:
-                manager.follow_logs(names[0])
+                manager.follow_logs(name)
             except KeyboardInterrupt:
                 console.print("\n[yellow]Stopped following logs[/]")
 
@@ -446,47 +602,194 @@ def stop(names, cloud, force):
                 display.error(f"Failed to stop cloud bot '{name}': {e}")
     else:
         manager = BotManager()
-        
+
+        # Try to initialize Docker manager
+        docker_mgr = None
+        try:
+            docker_mgr = DockerManager()
+        except Exception as docker_init_error:
+            # Docker not available, will use local process manager only
+            pass
+
         for name in names:
             try:
-                if force:
-                    display.info(f"Force stopping local bot '{name}'...")
+                docker_containers = []
+
+                # Check for Docker containers if Docker is available
+                if docker_mgr:
+                    try:
+                        docker_containers = docker_mgr.list_bot_containers(name)
+                    except Exception as docker_list_error:
+                        # Docker listing failed, fall back to process manager
+                        pass
+
+                if docker_containers:
+                    # Stop Docker containers
+                    display.info(f"Stopping {len(docker_containers)} Docker container(s) for '{name}'...")
+
+                    stopped_count = 0
+                    for container in docker_containers:
+                        try:
+                            timeout = 10 if not force else 5
+                            docker_mgr.stop_container(container.id, timeout=timeout)
+
+                            # Remove container after stopping
+                            docker_mgr.remove_container(container.id, force=force)
+
+                            stopped_count += 1
+                            display.success(f"✓ Stopped container: {container.name}")
+                        except Exception as container_error:
+                            display.warning(f"Failed to stop container {container.name}: {container_error}")
+
+                    if stopped_count == len(docker_containers):
+                        display.success(f"All {stopped_count} container(s) for '{name}' stopped")
+                    elif stopped_count > 0:
+                        display.warning(f"Stopped {stopped_count}/{len(docker_containers)} container(s)")
+                    else:
+                        display.error(f"Failed to stop any containers for '{name}'")
+
                 else:
-                    display.info(f"Stopping local bot '{name}'...")
-                manager.stop_bot(name, force=force)
-                display.success(f"Bot '{name}' stopped")
+                    # No Docker containers, try local process
+                    if force:
+                        display.info(f"Force stopping local bot '{name}'...")
+                    else:
+                        display.info(f"Stopping local bot '{name}'...")
+
+                    manager.stop_bot(name, force=force)
+                    display.success(f"Bot '{name}' stopped")
+
             except Exception as e:
                 display.error(f"Failed to stop bot '{name}': {e}")
 
 
 @bot.command()
-@click.argument('name')
+@click.argument('name', callback=validate_bot_name_callback)
 def status(name):
     """Get detailed status of a bot."""
+    from multicord.docker.docker_manager import DockerManager
+
     manager = BotManager()
     client = APIClient()
-    
-    # Try local first
+
+    # Check for Docker containers first
+    try:
+        docker_mgr = DockerManager()
+        docker_containers = docker_mgr.list_bot_containers(name)
+
+        if docker_containers:
+            # Check if this is a sharded deployment
+            is_sharded = any('shard-id' in c.labels for c in docker_containers)
+
+            if is_sharded:
+                # Sharded deployment - show shard table
+                console.print(f"\n[bold cyan]Docker Bot (Sharded): {name}[/]")
+
+                # Get shard count from first container
+                shard_count = docker_containers[0].labels.get('shard-count', len(docker_containers))
+                console.print(f"  Shards: {shard_count}")
+                console.print()
+
+                # Create Rich table for shards
+                table = Table(title=f"{name} - Shard Status", show_header=True, header_style="bold cyan")
+                table.add_column("Shard", style="cyan", width=8)
+                table.add_column("Container", style="dim")
+                table.add_column("Status", width=10)
+                table.add_column("Memory", justify="right", width=12)
+                table.add_column("CPU", justify="right", width=8)
+                table.add_column("Network", justify="right", width=15)
+
+                # Sort containers by shard ID
+                sorted_containers = sorted(
+                    docker_containers,
+                    key=lambda c: int(c.labels.get('shard-id', 0))
+                )
+
+                for container in sorted_containers:
+                    container.reload()  # Refresh state
+                    shard_id = container.labels.get('shard-id', '?')
+                    status = container.status
+                    status_color = "green" if status == "running" else "red"
+
+                    # Get stats if running
+                    memory_str = "-"
+                    cpu_str = "-"
+                    network_str = "-"
+                    if status == "running":
+                        try:
+                            stats = docker_mgr.get_container_stats(container.id)
+                            if stats:
+                                memory_str = f"{stats['memory_mb']:.1f} / {stats['memory_limit_mb']:.0f} MB"
+                                cpu_str = f"{stats['cpu_percent']:.1f}%"
+                                network_str = f"↓{stats['network_rx_mb']:.1f} ↑{stats['network_tx_mb']:.1f} MB"
+                        except Exception:
+                            pass  # Stats not available
+
+                    table.add_row(
+                        f"Shard {shard_id}",
+                        container.name,
+                        f"[{status_color}]{status}[/{status_color}]",
+                        memory_str,
+                        cpu_str,
+                        network_str
+                    )
+
+                console.print(table)
+                console.print()
+
+            else:
+                # Single container deployment - traditional display
+                console.print(f"\n[bold cyan]Docker Bot: {name}[/]")
+                console.print(f"  Containers: {len(docker_containers)}")
+
+                for idx, container in enumerate(docker_containers, 1):
+                    container.reload()  # Refresh container state
+                    status = container.status
+                    status_color = "green" if status == "running" else "red"
+
+                    console.print(f"\n  [bold]Container {idx}:[/] {container.name}")
+                    console.print(f"    Status: [{status_color}]{status}[/{status_color}]")
+                    console.print(f"    ID: {container.short_id}")
+                    console.print(f"    Image: {container.image.tags[0] if container.image.tags else 'none'}")
+
+                    # Get stats if running
+                    if status == "running":
+                        try:
+                            stats = docker_mgr.get_container_stats(container.id)
+                            if stats:
+                                console.print(f"\n    [yellow]Health Metrics:[/]")
+                                console.print(f"      Memory: {stats['memory_mb']:.1f} MB / {stats['memory_limit_mb']:.1f} MB")
+                                console.print(f"      CPU: {stats['cpu_percent']:.1f}%")
+                                console.print(f"      Network RX: {stats['network_rx_mb']:.2f} MB")
+                                console.print(f"      Network TX: {stats['network_tx_mb']:.2f} MB")
+                        except Exception as e:
+                            # Stats not available - don't show metrics section at all
+                            pass
+
+            return  # Docker containers found, skip process check
+    except Exception:
+        pass  # Docker not available or error, fall back to process check
+
+    # Try local process
     local_status = manager.get_bot_status(name)
     if local_status:
         console.print(f"\n[bold cyan]Local Bot: {name}[/]")
-        
+
         # Status with color
         status = local_status.get('status', 'unknown')
         status_color = "green" if status == "running" else "red"
         console.print(f"  Status: [{status_color}]{status}[/{status_color}]")
-        
+
         # Basic info
         console.print(f"  Path: {local_status.get('path', '-')}")
         console.print(f"  PID: {local_status.get('pid', '-')}")
         console.print(f"  Port: {local_status.get('port', '-')}")
-        
+
         # Health metrics if running
         if status == "running":
             console.print(f"\n  [yellow]Health Metrics:[/]")
             console.print(f"    Memory: {local_status.get('memory_mb', 0):.1f} MB")
             console.print(f"    CPU: {local_status.get('cpu_percent', 0):.1f}%")
-            
+
             # Uptime formatting
             uptime = local_status.get('uptime_seconds', 0)
             if uptime > 3600:
@@ -496,18 +799,18 @@ def status(name):
             else:
                 uptime_str = f"{int(uptime)}s"
             console.print(f"    Uptime: {uptime_str}")
-            
+
             # Health status
             is_healthy = local_status.get('is_healthy', False)
             health_color = "green" if is_healthy else "yellow"
             console.print(f"    Healthy: [{health_color}]{is_healthy}[/{health_color}]")
-            
+
             # Additional info
             if local_status.get('restart_count', 0) > 0:
                 console.print(f"    Restarts: {local_status['restart_count']}")
             if local_status.get('started_at'):
                 console.print(f"    Started: {local_status['started_at']}")
-    
+
     # Try cloud if authenticated
     if client.is_authenticated():
         try:
@@ -631,27 +934,105 @@ def health(watch):
 
 
 @bot.command()
-@click.argument('name')
-@click.option('--lines', default=50, help='Number of log lines to show')
-@click.option('--follow', is_flag=True, help='Follow log output')
-def logs(name, lines, follow):
-    """View bot logs."""
+@click.argument('name', callback=validate_bot_name_callback)
+@click.option('--lines', '--tail', default=50, help='Number of log lines to show')
+@click.option('--follow', '-f', is_flag=True, help='Follow log output')
+@click.option('--instance', '-i', default=None, type=int, help='Container instance number (for Docker bots)')
+def logs(name, lines, follow, instance):
+    """
+    View bot logs (process or Docker container).
+
+    Automatically detects if the bot is running in Docker containers
+    or as a local process and displays the appropriate logs.
+
+    Examples:
+        multicord bot logs my-bot                      # Last 50 lines
+        multicord bot logs my-bot --follow             # Stream logs live
+        multicord bot logs my-bot --instance 2         # View container instance 2
+        multicord bot logs my-bot -f -i 1              # Follow instance 1 logs
+    """
     manager = BotManager()
+    docker_mgr = DockerManager()
 
     try:
-        if follow:
-            display.info(f"Following logs for '{name}' (Ctrl+C to stop)...")
-            manager.follow_logs(name)
+        # Check for Docker containers first
+        docker_containers = docker_mgr.list_bot_containers(name)
+
+        if docker_containers:
+            # Docker mode
+            if len(docker_containers) > 1 and instance is None:
+                # Multiple containers, user needs to specify which one
+                display.warning(f"Bot '{name}' has {len(docker_containers)} running containers")
+                display.info("Please specify which instance to view with --instance:")
+                for container in docker_containers:
+                    # Extract instance ID from container name (multicord_name_N)
+                    try:
+                        inst_id = int(container.name.split('_')[-1])
+                        status_icon = "🟢" if container.status == "running" else "🔴"
+                        console.print(f"  {status_icon} Instance {inst_id}: {container.name} ({container.status})")
+                    except (ValueError, IndexError):
+                        console.print(f"  • {container.name} ({container.status})")
+                console.print()
+                display.info(f"Example: multicord bot logs {name} --instance 1 --follow")
+                sys.exit(0)
+
+            # Select container
+            if instance is not None:
+                # Find container with matching instance ID (normalize to lowercase)
+                container_name = f"multicord_{name.lower()}_{instance}"
+                selected_container = None
+                for container in docker_containers:
+                    if container.name == container_name:
+                        selected_container = container
+                        break
+
+                if not selected_container:
+                    display.error(f"Container instance {instance} not found for bot '{name}'")
+                    display.info(f"Available instances: {', '.join([c.name.split('_')[-1] for c in docker_containers])}")
+                    sys.exit(1)
+            else:
+                # Single container, use it
+                selected_container = docker_containers[0]
+
+            # Stream Docker logs
+            display.info(f"Viewing logs for container: {selected_container.name}")
+            if follow:
+                display.info("Following logs (Ctrl+C to stop)...")
+            console.print()
+
+            try:
+                for log_line in docker_mgr.get_container_logs(
+                    selected_container.id,
+                    follow=follow,
+                    tail=lines
+                ):
+                    # Docker logs come with timestamps and stream prefixes, print as-is
+                    console.print(log_line, end='')
+
+            except KeyboardInterrupt:
+                console.print("\n[yellow]Stopped following logs[/]")
+
         else:
-            logs = manager.get_logs(name, lines)
-            for line in logs:
-                console.print(line)
+            # Local process mode (file-based logs)
+            if instance is not None:
+                display.warning("--instance flag is only for Docker containers, ignoring")
+
+            if follow:
+                display.info(f"Following logs for '{name}' (Ctrl+C to stop)...")
+                manager.follow_logs(name)
+            else:
+                log_lines = manager.get_logs(name, lines)
+                for line in log_lines:
+                    console.print(line)
+
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Stopped following logs[/]")
     except Exception as e:
         display.error(f"Failed to get logs: {e}")
 
 
 @bot.command('set-token')
-@click.argument('name')
+@click.argument('name', callback=validate_bot_name_callback)
 @click.option('--token', default=None,
               help='Discord bot token to store securely')
 def set_token(name, token):
@@ -684,7 +1065,7 @@ def set_token(name, token):
         storage_method = manager.get_token_storage_method()
         display.success(f"Token stored securely using: {storage_method}")
         display.info("Old .env file can be safely deleted (token migrated)")
-        display.info(f"Start bot with: multicord bot start {name}")
+        display.info(f"Start bot with: multicord bot run {name}")
     except ValueError as e:
         display.error(str(e))
         sys.exit(1)
@@ -760,7 +1141,7 @@ def migrate_tokens(migrate_all, names):
 
 
 @bot.command()
-@click.argument('name')
+@click.argument('name', callback=validate_bot_name_callback)
 @click.option('--token', help='Bot token (will prompt if not provided)')
 @click.option('--force', is_flag=True, help='Force deployment even if bot exists in cloud')
 def deploy(name, token, force):
@@ -824,7 +1205,7 @@ def deploy(name, token, force):
 
 
 @bot.command()
-@click.argument('name')
+@click.argument('name', callback=validate_bot_name_callback)
 @click.option('--strategy', type=click.Choice(['local_first', 'cloud_first', 'newest', 'manual']),
               default='newest', help='Merge strategy for conflicts')
 def pull(name, strategy):
@@ -879,7 +1260,7 @@ def pull(name, strategy):
 
 
 @bot.command()
-@click.argument('name')
+@click.argument('name', callback=validate_bot_name_callback)
 @click.option('--strategy', type=click.Choice(['local_first', 'cloud_first', 'newest']),
               default='newest', help='Merge strategy for conflicts')
 @click.option('--bidirectional', is_flag=True, help='Sync in both directions')
@@ -941,14 +1322,14 @@ def sync(name, strategy, bidirectional):
 @click.argument('name', required=False)
 @click.option('--all', 'check_all', is_flag=True, help='Check all bots for updates')
 def check_updates(name, check_all):
-    """Check if template updates are available for bot(s)."""
+    """Check if source updates are available for bot(s)."""
     from multicord.utils.update_detector import UpdateDetector
 
     detector = UpdateDetector()
 
     if check_all or not name:
         # Check all bots
-        display.info("Checking all bots for template updates...")
+        display.info("Checking all bots for updates...")
 
         all_updates = detector.check_all_bots_updates()
 
@@ -973,7 +1354,7 @@ def check_updates(name, check_all):
         table.add_column("Current", style="yellow")
         table.add_column("Latest", style="green")
         table.add_column("Type", style="magenta")
-        table.add_column("Repository", style="blue")
+        table.add_column("Source", style="blue")
 
         for bot_name, update_info in sorted(bots_with_updates.items()):
             # Color code update type
@@ -990,7 +1371,7 @@ def check_updates(name, check_all):
                 update_info.current_version,
                 update_info.latest_version,
                 type_display,
-                update_info.repository or "unknown"
+                update_info.source_name or "unknown"
             )
 
         console.print(table)
@@ -1025,7 +1406,7 @@ def check_updates(name, check_all):
         console.print(f"[bold]Current Version:[/] {update_info.current_version}")
         console.print(f"[bold]Latest Version:[/] {update_info.latest_version}")
         console.print(f"[bold]Update Type:[/] {update_info.update_type}")
-        console.print(f"[bold]Repository:[/] {update_info.repository}")
+        console.print(f"[bold]Source:[/] {update_info.source_name}")
 
         if update_info.breaking_changes:
             console.print(f"\n[red]⚠️  WARNING: This update includes BREAKING CHANGES[/]")
@@ -1041,7 +1422,7 @@ def check_updates(name, check_all):
 
 
 @bot.command(name='update')
-@click.argument('name')
+@click.argument('name', callback=validate_bot_name_callback)
 @click.option('--strategy', type=click.Choice(['core-only', 'safe-merge', 'full-replace']),
               default='safe-merge', help='Update strategy (default: safe-merge)')
 @click.option('--dry-run', is_flag=True, help='Preview changes without applying')
@@ -1049,8 +1430,8 @@ def check_updates(name, check_all):
 @click.option('--no-backup', is_flag=True, help='Skip creating backup before update')
 @click.option('--yes', '-y', is_flag=True, help='Skip confirmation prompt')
 def update_bot(name, strategy, dry_run, target_version, no_backup, yes):
-    """Update a bot to the latest template version."""
-    from multicord.utils.template_updater import TemplateUpdater, UpdateStrategy
+    """Update a bot to the latest source version."""
+    from multicord.utils.bot_updater import BotUpdater, UpdateStrategy
     from multicord.utils.update_detector import UpdateDetector
 
     # Map strategy string to enum
@@ -1061,7 +1442,7 @@ def update_bot(name, strategy, dry_run, target_version, no_backup, yes):
     }
     update_strategy = strategy_map[strategy]
 
-    updater = TemplateUpdater()
+    updater = BotUpdater()
     detector = UpdateDetector()
 
     # Check if update is available
@@ -1166,15 +1547,15 @@ def update_bot(name, strategy, dry_run, target_version, no_backup, yes):
 
 
 @bot.command(name='rollback')
-@click.argument('name')
+@click.argument('name', callback=validate_bot_name_callback)
 @click.option('--backup', help='Specific backup file to restore (default: latest)')
 @click.option('--yes', '-y', is_flag=True, help='Skip confirmation prompt')
 def rollback_bot(name, backup, yes):
     """Rollback a bot to a previous backup."""
-    from multicord.utils.template_updater import TemplateUpdater
+    from multicord.utils.bot_updater import BotUpdater
     from multicord.utils.backup_manager import BackupManager
 
-    updater = TemplateUpdater()
+    updater = BotUpdater()
     backup_manager = BackupManager()
 
     # Get available backups
@@ -1197,7 +1578,7 @@ def rollback_bot(name, backup, yes):
     console.print(f"\n[bold cyan]Rollback '{name}'[/]\n")
     console.print(f"[bold]Backup:[/] {target_backup.backup_file}")
     console.print(f"[bold]Created:[/] {target_backup.timestamp}")
-    console.print(f"[bold]Template Version:[/] {target_backup.template_version}")
+    console.print(f"[bold]Source Version:[/] {target_backup.template_version}")
     console.print(f"[bold]Reason:[/] {target_backup.reason}")
 
     # Confirm
@@ -1215,237 +1596,605 @@ def rollback_bot(name, backup, yes):
 
     if success:
         display.success(f"Successfully rolled back '{name}' to {target_backup.backup_file}")
-        console.print(f"[dim]Restored to template version {target_backup.template_version}[/]")
+        console.print(f"[dim]Restored to source version {target_backup.template_version}[/]")
     else:
         display.error("Rollback failed")
         sys.exit(1)
 
 
-@cli.group()
-def template():
-    """Template management commands."""
+# =============================================================================
+# BOT COG COMMANDS (nested under bot group)
+# =============================================================================
+
+@bot.group()
+def cog():
+    """Manage bot cogs and extensions."""
     pass
 
 
-@template.command(name='list')
-@click.option('--repo', help='List templates from specific repository only')
-def template_list(repo):
-    """List available bot templates from all repositories."""
-    from multicord.utils.template_repository import TemplateRepository
+@cog.command(name='available')
+def bot_cog_available():
+    """List all available cogs from official sources and imported repos."""
+    from multicord.utils.source_resolver import SourceResolver
+    from collections import defaultdict
 
-    template_repo = TemplateRepository()
+    resolver = SourceResolver()
+    sources = resolver.list_sources()
 
-    if repo:
-        # List from specific repository
-        try:
-            templates = template_repo.list_templates(repo)
-            repo_config = template_repo.get_repository_config(repo)
+    # Filter to cogs only
+    cogs = {name: info for name, info in sources.items() if info.get('type') == 'cog'}
 
-            table = Table(title=f"Templates from '{repo}' Repository")
-            table.add_column("Name", style="cyan")
-            table.add_column("Description")
-            table.add_column("Version", style="yellow")
-            table.add_column("Category", style="magenta")
+    if not cogs:
+        display.warning("No cogs available")
+        return
 
-            for name, info in templates.items():
-                table.add_row(
-                    name,
-                    info.get('description', 'No description'),
-                    info.get('version', 'unknown'),
-                    info.get('category', 'general')
-                )
+    console.print("\n[bold cyan]Available Cogs[/]\n")
 
-            console.print(table)
+    # Group by source type
+    by_source = defaultdict(list)
+    for cog_name, cog_info in cogs.items():
+        source_type = cog_info.get('source', 'unknown')
+        by_source[source_type].append((cog_name, cog_info))
 
-            # Show repository info
-            if repo_config:
-                console.print(f"\n[dim]Repository Priority: {repo_config.get('priority', 0)} | "
-                             f"URL: {repo_config.get('url', 'unknown')}[/]")
+    # Display built-ins first
+    if 'built-in' in by_source:
+        console.print("[yellow]BUILT-IN (always available)[/]")
+        for cog_name, cog_info in sorted(by_source['built-in'], key=lambda x: x[0]):
+            cached = " (cached)" if cog_info.get('cached') else ""
+            console.print(f"  [cyan]{cog_name}[/]{cached}")
+            console.print(f"    {cog_info.get('description', 'No description')}")
+        console.print()
 
-        except Exception as e:
-            display.error(f"Failed to list templates from '{repo}': {e}")
-            sys.exit(1)
-    else:
-        # List from all enabled repositories with priority indication
-        all_templates = template_repo.list_all_templates(enabled_only=True)
+    # Display imported repos
+    if 'imported' in by_source:
+        console.print("[yellow]IMPORTED (Git repos)[/]")
+        for cog_name, cog_info in sorted(by_source['imported'], key=lambda x: x[0]):
+            console.print(f"  [cyan]{cog_name}[/]")
+            console.print(f"    {cog_info.get('description', 'No description')}")
+            console.print(f"    [dim]{cog_info.get('url', '')}[/]")
+        console.print()
 
-        if not all_templates:
-            display.info("No templates found. Run 'multicord repo update --all' to fetch templates.")
-            return
-
-        table = Table(title="Available Templates (All Repositories)")
-        table.add_column("Name", style="cyan")
-        table.add_column("Repository", style="blue")
-        table.add_column("Description")
-        table.add_column("Version", style="yellow")
-        table.add_column("Priority", justify="right", style="magenta")
-
-        # Flatten and sort by priority
-        template_rows = []
-        for template_name, repo_list in all_templates.items():
-            for repo_name, template_info in repo_list:
-                repo_config = template_repo.get_repository_config(repo_name)
-                priority = repo_config.get('priority', 0) if repo_config else 0
-                template_rows.append((
-                    template_name,
-                    repo_name,
-                    template_info.get('description', 'No description'),
-                    template_info.get('version', 'unknown'),
-                    priority
-                ))
-
-        # Sort by priority (highest first)
-        template_rows.sort(key=lambda x: x[4], reverse=True)
-
-        # Add rows to table
-        for name, repo_name, desc, version, priority in template_rows:
-            # Truncate description if too long
-            if len(desc) > 60:
-                desc = desc[:57] + "..."
-
-            # Indicate highest priority with a star
-            if priority > 0:
-                repo_display = f"{repo_name} ⭐"
-            else:
-                repo_display = repo_name
-
-            table.add_row(name, repo_display, desc, version, str(priority))
-
-        console.print(table)
-        console.print(f"\n[dim]Templates with ⭐ will be used by default for their name.[/]")
-        console.print(f"[dim]Use --repo to specify a different source.[/]")
+    display.success(f"Total: {len(cogs)} cogs available")
+    display.info("Install with: multicord bot cog add <cog-name> <bot-name>")
 
 
-@template.command()
-@click.argument('url')
-@click.option('--name', help='Template name')
-def install(url, name):
-    """Install a bot template from URL."""
+@cog.command(name='list')
+@click.argument('bot_name')
+def bot_cog_list(bot_name):
+    """List installed cogs for a bot."""
+    from multicord.utils.source_resolver import SourceResolver
+    from multicord.utils.cog_manager import CogManager
+
     manager = BotManager()
+    bot_path = manager.bots_dir / bot_name
+
+    if not bot_path.exists():
+        display.error(f"Bot '{bot_name}' not found")
+        return
+
+    # Get cog repository for metadata
+    resolver = SourceResolver()
+    try:
+        # Use official source for cog metadata
+        official_path = resolver.resolve_source('permissions')  # Any official cog to get repo path
+        cog_manager = CogManager(official_path.parent)
+    except:
+        cog_repo = None
+
+    # Get installed cogs
+    installed = cog_manager.list_installed_cogs(bot_path) if cog_repo else []
+
+    if not installed:
+        display.warning(f"No cogs installed in '{bot_name}'")
+        display.info(f"Install with: multicord bot cog add <cog-name> {bot_name}")
+        return
+
+    console.print(f"\n[bold cyan]Installed Cogs for '{bot_name}'[/]\n")
+
+    table = Table(show_header=True, header_style="bold magenta")
+    table.add_column("Cog", style="cyan")
+    table.add_column("Version")
+    table.add_column("Description")
+
+    for cog_name in sorted(installed):
+        # Try to get cog info
+        cog_info = cog_manager.get_installed_cog_info(bot_path, cog_name) if cog_repo else {}
+
+        version = cog_info.get('version', '?.?.?')
+        description = cog_info.get('description', 'No description')
+
+        table.add_row(cog_name, version, description)
+
+    console.print(table)
+    display.success(f"Total: {len(installed)} cogs installed")
+
+
+@cog.command(name='add')
+@click.argument('cog_name')
+@click.argument('bot_name')
+@click.option('--offline', is_flag=True, help='Use cached sources without network updates')
+@click.option('--force-update', is_flag=True, help='Force update source before installing')
+@click.option('--no-deps', is_flag=True, help='Skip automatic dependency installation')
+def bot_cog_add(cog_name, bot_name, offline, force_update, no_deps):
+    """Add a cog to an existing bot.
+
+    Cogs are automatically resolved from:
+    1. Official built-ins (permissions, moderation, music)
+    2. Your imported repos (from 'multicord repo import')
+
+    Examples:
+        multicord bot cog add permissions my-bot     # Official cog
+        multicord bot cog add my-custom-cog my-bot   # From imported repo
+    """
+    import os
+    import shutil
+    from multicord.utils.source_resolver import SourceResolver
+    from multicord.utils.cog_manager import CogManager, CircularDependencyError
+
+    # Set environment variables for Git operations
+    if offline:
+        os.environ['MULTICORD_OFFLINE'] = '1'
+
+    manager = BotManager()
+    bot_path = manager.bots_dir / bot_name
+
+    if not bot_path.exists():
+        display.error(f"Bot '{bot_name}' not found")
+        return
+
+    display.info(f"Installing cog '{cog_name}' into '{bot_name}'...")
 
     try:
-        display.info(f"Installing template from {url}...")
-        template_name = manager.install_template(url, name)
-        display.success(f"Template '{template_name}' installed successfully")
-    except Exception as e:
-        display.error(f"Failed to install template: {e}")
+        # Resolve cog source (auto-fetches if official and not cached)
+        resolver = SourceResolver()
+        cog_source_path = resolver.resolve_source(cog_name, force_update=force_update)
 
+        # Get cog repository for installation
+        cog_manager = CogManager(cog_source_path.parent)
+
+        # Check if cog exists in resolved path
+        cog_metadata = cog_manager.get_cog_metadata(cog_name)
+        if not cog_metadata:
+            # The source might be the cog itself (not a collection)
+            # Check if it's a standalone cog repo
+            cog_json = cog_source_path / 'cog.json'
+            manifest_json = cog_source_path / 'manifest.json'
+            if cog_json.exists() or manifest_json.exists():
+                # It's a standalone cog, install directly
+                cogs_dir = bot_path / 'cogs'
+                cogs_dir.mkdir(exist_ok=True)
+                dest_path = cogs_dir / cog_name
+
+                if dest_path.exists():
+                    display.warning(f"Cog '{cog_name}' already installed, updating...")
+                    shutil.rmtree(dest_path)
+
+                shutil.copytree(cog_source_path, dest_path)
+                display.success(f"✓ Cog '{cog_name}' installed successfully")
+                console.print("\n[yellow]Next steps:[/]")
+                console.print(f"  1. Restart your bot to load the cog")
+                console.print(f"  2. Use the cog's commands (see README in cog directory)")
+                return
+            else:
+                display.error(f"Cog '{cog_name}' not found in source")
+                return
+
+        # Check for dependencies
+        missing_deps = cog_manager.check_missing_dependencies(bot_path, cog_name)
+        if missing_deps and not no_deps:
+            console.print(f"\n[cyan]Checking dependencies for '{cog_name}'...[/]")
+            for dep_name, version_req in missing_deps:
+                console.print(f"  [yellow]⚠[/] Missing: {dep_name} ({version_req})")
+
+            if not click.confirm("\nInstall dependencies automatically?", default=True):
+                display.warning("Installation cancelled (dependencies required)")
+                return
+
+            # Show dependency installation progress
+            console.print()
+            deps_to_install = cog_manager.resolve_dependencies(cog_name, bot_path)
+            for dep_name in deps_to_install:
+                console.print(f"  → Installing {dep_name}...", end=" ")
+                cog_manager.install_cog(bot_path, dep_name, auto_install_deps=False)
+                console.print("[green]✓[/]")
+
+        # Install the cog
+        console.print(f"  → Installing {cog_name}...", end=" ")
+        cog_manager.install_cog(bot_path, cog_name, auto_install_deps=not no_deps)
+        console.print("[green]✓[/]")
+
+        display.success(f"\n✓ Cog '{cog_name}' installed successfully")
+
+        # Show next steps
+        console.print("\n[yellow]Next steps:[/]")
+        console.print(f"  1. Restart your bot to load the cog")
+        console.print(f"  2. Use the cog's commands (see README in cog directory)")
+
+    except CircularDependencyError as e:
+        display.error(f"Circular dependency detected: {e}")
+    except ValueError as e:
+        display.error(str(e))
+    except Exception as e:
+        display.error(f"Failed to install cog: {e}")
+
+
+@cog.command(name='remove')
+@click.argument('cog_name')
+@click.argument('bot_name')
+def bot_cog_remove(cog_name, bot_name):
+    """Remove a cog from a bot."""
+    import shutil
+
+    manager = BotManager()
+    bot_path = manager.bots_dir / bot_name
+
+    if not bot_path.exists():
+        display.error(f"Bot '{bot_name}' not found")
+        return
+
+    cog_path = bot_path / 'cogs' / cog_name
+
+    if not cog_path.exists():
+        display.error(f"Cog '{cog_name}' not installed in '{bot_name}'")
+        return
+
+    if not click.confirm(f"Remove cog '{cog_name}' from '{bot_name}'?"):
+        display.info("Removal cancelled")
+        return
+
+    try:
+        shutil.rmtree(cog_path)
+        display.success(f"✓ Cog '{cog_name}' removed successfully")
+        display.warning("Note: Dependencies were not uninstalled automatically")
+        console.print(f"\n[dim]Restart your bot to apply changes[/]")
+
+    except Exception as e:
+        display.error(f"Failed to remove cog: {e}")
+
+
+@cog.command(name='update')
+@click.argument('cog_name', required=False)
+@click.argument('bot_name')
+@click.option('--all', 'update_all', is_flag=True, help='Update all installed cogs')
+def bot_cog_update(cog_name, bot_name, update_all):
+    """Update cogs in a bot to latest version."""
+    import shutil
+    from multicord.utils.source_resolver import SourceResolver
+    from multicord.utils.cog_manager import CogManager
+
+    manager = BotManager()
+    bot_path = manager.bots_dir / bot_name
+
+    if not bot_path.exists():
+        display.error(f"Bot '{bot_name}' not found")
+        return
+
+    resolver = SourceResolver()
+
+    try:
+        if update_all:
+            # Update all installed cogs
+            cogs_dir = bot_path / 'cogs'
+            if not cogs_dir.exists():
+                display.warning("No cogs installed")
+                return
+
+            installed = [d.name for d in cogs_dir.iterdir() if d.is_dir() and (d / '__init__.py').exists()]
+
+            if not installed:
+                display.warning("No cogs installed")
+                return
+
+            display.info(f"Updating {len(installed)} cogs...")
+
+            for cog in installed:
+                try:
+                    # Force update the source
+                    cog_source = resolver.resolve_source(cog, force_update=True)
+
+                    # Reinstall
+                    cog_dest = cogs_dir / cog
+                    if cog_dest.exists():
+                        shutil.rmtree(cog_dest)
+                    shutil.copytree(cog_source, cog_dest)
+
+                    display.success(f"✓ Updated {cog}")
+                except Exception as e:
+                    display.warning(f"✗ Failed to update {cog}: {e}")
+
+            display.success("Update complete")
+
+        elif cog_name:
+            # Update specific cog
+            display.info(f"Updating cog '{cog_name}'...")
+
+            cog_source = resolver.resolve_source(cog_name, force_update=True)
+            cog_dest = bot_path / 'cogs' / cog_name
+
+            if cog_dest.exists():
+                shutil.rmtree(cog_dest)
+            shutil.copytree(cog_source, cog_dest)
+
+            display.success(f"✓ Cog '{cog_name}' updated successfully")
+            console.print(f"\n[dim]Restart your bot to apply changes[/]")
+
+        else:
+            display.error("Specify a cog name or use --all to update all cogs")
+
+    except Exception as e:
+        display.error(f"Failed to update cog: {e}")
+
+
+# =============================================================================
+# BOT IMPORT COMMAND
+# =============================================================================
+
+@bot.command(name='import')
+@click.argument('source')
+@click.option('--name', help='Bot name (auto-generated from source if not specified)')
+def bot_import(source, name):
+    """
+    Import an existing bot directly from Git URL or local path.
+
+    Unlike 'repo import', this creates a bot instance directly without
+    adding it as a reusable source.
+
+    For Git URLs: Clones to ~/.multicord/bots/
+    For local paths: Registers in-place (no copying)
+
+    Examples:
+        multicord bot import https://github.com/user/my-bot
+        multicord bot import ./my-local-bot
+        multicord bot import ./my-local-bot --name my-bot
+    """
+    import re
+    from pathlib import Path
+
+    manager = BotManager()
+
+    # Determine if source is Git URL or local path
+    is_git_url = source.startswith('https://') or source.startswith('git@')
+
+    if is_git_url:
+        # Extract repo name from URL for default bot name
+        if not name:
+            match = re.search(r'/([^/]+?)(?:\.git)?$', source)
+            name = match.group(1) if match else 'imported-bot'
+
+        bot_path = manager.bots_dir / name
+
+        if bot_path.exists():
+            display.error(f"Bot '{name}' already exists")
+            display.info(f"Use a different name with: --name <new-name>")
+            sys.exit(1)
+
+        display.info(f"Cloning '{source}' as '{name}'...")
+
+        try:
+            from multicord.utils.git_operations import GitRepository, GitOperationConfig
+            config = GitOperationConfig.from_env()
+            git_repo = GitRepository(source, bot_path, 'main', config)
+            git_repo.ensure_repository(force_update=False)
+
+            # Create metadata
+            import json
+            meta_file = bot_path / '.multicord_meta.json'
+            meta_file.write_text(json.dumps({
+                'source_type': 'git',
+                'source_url': source,
+                'imported_at': __import__('datetime').datetime.now().isoformat(),
+            }, indent=2))
+
+            display.success(f"Bot '{name}' imported successfully")
+            console.print(f"\n[dim]Location: {bot_path}[/]")
+            console.print(f"\n[yellow]Next steps:[/]")
+            console.print(f"  1. Add your DISCORD_TOKEN to .env")
+            console.print(f"  2. Run: multicord bot run {name}")
+
+        except Exception as e:
+            display.error(f"Failed to import from Git: {e}")
+            sys.exit(1)
+
+    else:
+        # Local path
+        source_path = Path(source).resolve()
+
+        if not source_path.exists():
+            display.error(f"Path not found: {source}")
+            sys.exit(1)
+
+        if not source_path.is_dir():
+            display.error(f"Not a directory: {source}")
+            sys.exit(1)
+
+        # Use directory name as bot name if not specified
+        bot_name = name or source_path.name
+
+        # Check if bot.py exists (minimal validation)
+        if not (source_path / 'bot.py').exists():
+            display.warning(f"No bot.py found in {source_path}")
+            if not click.confirm("Continue anyway?"):
+                display.info("Import cancelled")
+                return
+
+        # For local paths, we register in-place (no copying)
+        # Create a symlink or just track it
+        import json
+
+        # Create the registry entry
+        registry_file = manager.config_dir / 'config' / 'imported_bots.json'
+        registry_file.parent.mkdir(parents=True, exist_ok=True)
+
+        if registry_file.exists():
+            registry = json.loads(registry_file.read_text())
+        else:
+            registry = {}
+
+        if bot_name in registry:
+            display.error(f"Bot '{bot_name}' already registered")
+            display.info(f"Use a different name with: --name <new-name>")
+            sys.exit(1)
+
+        registry[bot_name] = {
+            'path': str(source_path),
+            'source_type': 'local',
+            'imported_at': __import__('datetime').datetime.now().isoformat(),
+        }
+        registry_file.write_text(json.dumps(registry, indent=2))
+
+        display.success(f"Bot '{bot_name}' registered from local path")
+        console.print(f"\n[dim]Location: {source_path}[/]")
+        console.print(f"\n[yellow]Next steps:[/]")
+        console.print(f"  1. Add your DISCORD_TOKEN to .env")
+        console.print(f"  2. Run: multicord bot run {bot_name}")
+
+
+# =============================================================================
+# REPO COMMANDS (Git-based sources only)
+# =============================================================================
 
 @cli.group()
 def repo():
-    """Repository management commands."""
+    """
+    Source repository management.
+
+    Sources include templates and cogs. Built-in sources (basic, advanced,
+    permissions, moderation, music) are always available without import.
+
+    Use 'repo import' to add third-party Git repositories.
+    """
     pass
 
 
 @repo.command(name='list')
-@click.option('--all', 'show_all', is_flag=True, help='Show disabled repositories')
-def repo_list(show_all):
-    """List all configured template repositories."""
-    from multicord.utils.template_repository import TemplateRepository
-    from datetime import datetime
+def repo_list():
+    """
+    List all available sources (built-ins + imported).
 
-    template_repo = TemplateRepository()
-    repos = template_repo.list_repositories(enabled_only=not show_all)
+    Shows official built-in templates and cogs, plus any
+    Git repositories you've imported.
+    """
+    from multicord.utils.source_resolver import SourceResolver
 
-    if not repos:
-        display.info("No repositories configured")
+    resolver = SourceResolver()
+    sources = resolver.list_sources()
+
+    if not sources:
+        display.info("No sources available")
         return
 
-    table = Table(title="Template Repositories")
-    table.add_column("Name", style="cyan")
-    table.add_column("URL", style="blue")
-    table.add_column("Priority", justify="right", style="yellow")
-    table.add_column("Status", style="green")
-    table.add_column("Last Synced", style="magenta")
+    # Separate into built-in and imported
+    builtins = {k: v for k, v in sources.items() if v.get('source') == 'built-in'}
+    imported = {k: v for k, v in sources.items() if v.get('source') == 'imported'}
 
-    # Sort by priority (descending)
-    sorted_repos = sorted(repos.items(), key=lambda x: x[1].get('priority', 0), reverse=True)
+    # Display built-ins
+    console.print("\n[bold yellow]BUILT-IN (always available)[/]")
+    console.print("─" * 60)
 
-    for name, config in sorted_repos:
-        # Format status
-        if config.get('enabled', True):
-            status = "[green]✓ Enabled[/]"
-        else:
-            status = "[red]✗ Disabled[/]"
+    table = Table(show_header=True, header_style="bold magenta", box=None)
+    table.add_column("Name", style="cyan", width=15)
+    table.add_column("Type", width=10)
+    table.add_column("Description")
+    table.add_column("Cached", width=8)
 
-        # Format last synced
-        last_synced = config.get('last_synced')
-        if last_synced:
-            try:
-                synced_dt = datetime.fromisoformat(last_synced)
-                time_ago = datetime.now() - synced_dt
-                if time_ago.days > 0:
-                    synced_str = f"{time_ago.days}d ago"
-                elif time_ago.seconds > 3600:
-                    synced_str = f"{time_ago.seconds // 3600}h ago"
-                else:
-                    synced_str = f"{time_ago.seconds // 60}m ago"
-            except:
-                synced_str = "Unknown"
-        else:
-            synced_str = "Never"
-
-        # Truncate URL if too long
-        url = config.get('url', '')
-        if len(url) > 50:
-            url = url[:47] + "..."
-
+    for name in sorted(builtins.keys()):
+        info = builtins[name]
+        cached = "[green]✓[/]" if info.get('cached') else "[dim]–[/]"
         table.add_row(
             name,
-            url,
-            str(config.get('priority', 0)),
-            status,
-            synced_str
+            info.get('type', 'unknown'),
+            info.get('description', 'No description'),
+            cached
         )
 
     console.print(table)
 
+    # Display imported
+    if imported:
+        console.print("\n[bold yellow]IMPORTED (Git repos)[/]")
+        console.print("─" * 60)
 
-@repo.command(name='add')
-@click.argument('name')
-@click.argument('url')
-@click.option('--priority', type=int, default=10, help='Repository priority (higher = checked first)')
-@click.option('--branch', default='main', help='Git branch to use')
-@click.option('--description', help='Repository description')
-def repo_add(name, url, priority, branch, description):
-    """Add a new template repository."""
-    from multicord.utils.template_repository import TemplateRepository
+        table2 = Table(show_header=True, header_style="bold magenta", box=None)
+        table2.add_column("Name", style="cyan", width=15)
+        table2.add_column("Type", width=10)
+        table2.add_column("URL")
 
-    template_repo = TemplateRepository()
+        for name in sorted(imported.keys()):
+            info = imported[name]
+            url = info.get('url', '')
+            if len(url) > 40:
+                url = url[:37] + "..."
+            table2.add_row(
+                name,
+                info.get('type', 'unknown'),
+                url
+            )
+
+        console.print(table2)
+
+    console.print()
+    display.info("Use built-ins with: multicord bot create my-bot --from basic")
+    display.info("Import Git repos with: multicord repo import <git-url> --as <name>")
+
+
+@repo.command(name='import')
+@click.argument('git_url')
+@click.option('--as', 'name', required=True, help='Local name for this repository')
+@click.option('--description', help='Description of this repository')
+def repo_import(git_url, name, description):
+    """
+    Import a Git repository as a reusable source.
+
+    The repository must be a Git URL (https:// or git@).
+    For local directories, use 'multicord bot import' instead.
+
+    Examples:
+        multicord repo import https://github.com/user/cool-template --as cool
+        multicord repo import https://github.com/org/utility-cog --as utils
+    """
+    from multicord.utils.source_resolver import SourceResolver
+
+    # Validate it's a Git URL
+    if not (git_url.startswith('https://') or git_url.startswith('git@')):
+        display.error("repo import only accepts Git URLs")
+        display.info("For local directories, use: multicord bot import <local-path>")
+        sys.exit(1)
+
+    resolver = SourceResolver()
 
     try:
-        template_repo.add_repository(
-            name=name,
-            url=url,
-            priority=priority,
-            branch=branch,
-            description=description or f"Custom repository: {name}"
-        )
-        display.success(f"Repository '{name}' added successfully")
-        display.info(f"Run 'multicord repo update {name}' to fetch templates")
+        repo_path = resolver.import_repo(git_url, name, description or "")
+        console.print(f"\n[dim]Location: {repo_path}[/]")
+        display.info(f"Use with: multicord bot create my-bot --from {name}")
     except ValueError as e:
         display.error(str(e))
         sys.exit(1)
     except Exception as e:
-        display.error(f"Failed to add repository: {e}")
+        display.error(f"Failed to import repository: {e}")
         sys.exit(1)
 
 
 @repo.command(name='remove')
-@click.argument('name')
-@click.confirmation_option(prompt='Are you sure you want to remove this repository?')
+@click.argument('name', callback=validate_bot_name_callback)
 def repo_remove(name):
-    """Remove a template repository."""
-    from multicord.utils.template_repository import TemplateRepository
+    """
+    Remove an imported repository.
 
-    template_repo = TemplateRepository()
+    Built-in sources cannot be removed.
+
+    Example:
+        multicord repo remove my-custom-template
+    """
+    from multicord.utils.source_resolver import SourceResolver
+
+    resolver = SourceResolver()
+
+    if not click.confirm(f"Remove repository '{name}'?"):
+        display.info("Removal cancelled")
+        return
 
     try:
-        if template_repo.remove_repository(name):
-            display.success(f"Repository '{name}' removed successfully")
-        else:
-            display.error(f"Repository '{name}' not found")
-            sys.exit(1)
+        resolver.remove_repo(name)
     except ValueError as e:
         display.error(str(e))
         sys.exit(1)
@@ -1455,150 +2204,63 @@ def repo_remove(name):
 
 
 @repo.command(name='update')
-@click.argument('name', required=False)
-@click.option('--all', 'update_all', is_flag=True, help='Update all repositories')
-def repo_update(name, update_all):
-    """Update repository (git pull)."""
-    from multicord.utils.template_repository import TemplateRepository
+@click.argument('name', callback=validate_bot_name_callback)
+def repo_update(name):
+    """
+    Update a repository (git pull).
 
-    template_repo = TemplateRepository()
+    Works for both built-in sources and imported repositories.
 
-    if update_all:
-        # Update all enabled repositories
-        repos = template_repo.list_repositories(enabled_only=True)
-        if not repos:
-            display.info("No enabled repositories to update")
-            return
+    Examples:
+        multicord repo update basic           # Update built-in
+        multicord repo update my-custom       # Update imported
+    """
+    from multicord.utils.source_resolver import SourceResolver
 
-        display.info(f"Updating {len(repos)} repositories...")
+    resolver = SourceResolver()
 
-        success_count = 0
-        for repo_name in repos.keys():
-            try:
-                console.print(f"  [cyan]→[/] {repo_name}...", end=" ")
-                template_repo.clone_repository(repo_name, force_update=True)
-                console.print("[green]✓[/]")
-                success_count += 1
-            except Exception as e:
-                console.print(f"[red]✗ {e}[/]")
-
-        display.success(f"Updated {success_count}/{len(repos)} repositories")
-
-    elif name:
-        # Update specific repository
-        try:
-            display.info(f"Updating repository '{name}'...")
-            template_repo.clone_repository(name, force_update=True)
-            display.success(f"Repository '{name}' updated successfully")
-        except ValueError as e:
-            display.error(str(e))
-            sys.exit(1)
-        except Exception as e:
-            display.error(f"Failed to update repository: {e}")
-            sys.exit(1)
-    else:
-        display.error("Specify a repository name or use --all")
+    try:
+        resolver.update_repo(name)
+    except ValueError as e:
+        display.error(str(e))
+        sys.exit(1)
+    except Exception as e:
+        display.error(f"Failed to update repository: {e}")
         sys.exit(1)
 
 
 @repo.command(name='info')
-@click.argument('name')
+@click.argument('name', callback=validate_bot_name_callback)
 def repo_info(name):
-    """Show detailed repository information."""
-    from multicord.utils.template_repository import TemplateRepository
+    """
+    Show detailed information about a source.
 
-    template_repo = TemplateRepository()
-    config = template_repo.get_repository_config(name)
+    Example:
+        multicord repo info permissions
+    """
+    from multicord.utils.source_resolver import SourceResolver
 
-    if not config:
-        display.error(f"Repository '{name}' not found")
+    resolver = SourceResolver()
+    info = resolver.get_source_info(name)
+
+    if not info:
+        display.error(f"Source '{name}' not found")
+        display.info("Use 'multicord repo list' to see available sources")
         sys.exit(1)
 
-    console.print(f"\n[bold cyan]Repository: {name}[/]\n")
-    console.print(f"[bold]Name:[/] {config.get('name', name)}")
-    console.print(f"[bold]URL:[/] {config.get('url', 'Unknown')}")
-    console.print(f"[bold]Type:[/] {config.get('type', 'custom')}")
-    console.print(f"[bold]Branch:[/] {config.get('branch', 'main')}")
-    console.print(f"[bold]Priority:[/] {config.get('priority', 0)}")
-    console.print(f"[bold]Status:[/] {'Enabled' if config.get('enabled', True) else 'Disabled'}")
-    console.print(f"[bold]Auto-update:[/] {'Yes' if config.get('auto_update', False) else 'No'}")
+    console.print(f"\n[bold cyan]Source: {name}[/]\n")
+    console.print(f"[bold]Type:[/] {info.get('type', 'unknown')}")
+    console.print(f"[bold]Source:[/] {info.get('source', 'unknown')}")
+    console.print(f"[bold]URL:[/] {info.get('url', 'N/A')}")
+    console.print(f"[bold]Description:[/] {info.get('description', 'No description')}")
 
-    last_synced = config.get('last_synced')
-    if last_synced:
-        console.print(f"[bold]Last Synced:[/] {last_synced}")
+    if info.get('source') == 'built-in':
+        cached = "Yes" if info.get('cached') else "No (will be fetched on first use)"
+        console.print(f"[bold]Cached:[/] {cached}")
     else:
-        console.print(f"[bold]Last Synced:[/] Never")
-
-    description = config.get('description', '')
-    if description:
-        console.print(f"[bold]Description:[/] {description}")
-
-    # Try to get template count
-    try:
-        templates = template_repo.list_templates(name)
-        console.print(f"[bold]Templates:[/] {len(templates)}")
-    except:
-        pass
+        console.print(f"[bold]Last Updated:[/] {info.get('last_updated', 'Unknown')}")
 
     console.print()
-
-
-@repo.command(name='priority')
-@click.argument('name')
-@click.argument('priority', type=int)
-def repo_priority(name, priority):
-    """Set repository priority (higher = checked first)."""
-    from multicord.utils.template_repository import TemplateRepository
-
-    template_repo = TemplateRepository()
-
-    try:
-        template_repo.set_repository_priority(name, priority)
-        display.success(f"Repository '{name}' priority set to {priority}")
-    except ValueError as e:
-        display.error(str(e))
-        sys.exit(1)
-    except Exception as e:
-        display.error(f"Failed to set priority: {e}")
-        sys.exit(1)
-
-
-@repo.command(name='enable')
-@click.argument('name')
-def repo_enable(name):
-    """Enable a repository."""
-    from multicord.utils.template_repository import TemplateRepository
-
-    template_repo = TemplateRepository()
-
-    try:
-        template_repo.enable_repository(name)
-        display.success(f"Repository '{name}' enabled")
-    except ValueError as e:
-        display.error(str(e))
-        sys.exit(1)
-    except Exception as e:
-        display.error(f"Failed to enable repository: {e}")
-        sys.exit(1)
-
-
-@repo.command(name='disable')
-@click.argument('name')
-def repo_disable(name):
-    """Disable a repository."""
-    from multicord.utils.template_repository import TemplateRepository
-
-    template_repo = TemplateRepository()
-
-    try:
-        template_repo.disable_repository(name)
-        display.success(f"Repository '{name}' disabled")
-    except ValueError as e:
-        display.error(str(e))
-        sys.exit(1)
-    except Exception as e:
-        display.error(f"Failed to disable repository: {e}")
-        sys.exit(1)
 
 
 @cli.group()
@@ -1770,296 +2432,6 @@ def doctor():
         display.success("\nAll checks passed! MultiCord is ready to use.")
     else:
         display.warning("\nSome checks failed. Please install missing dependencies.")
-
-
-@cli.group()
-def cog():
-    """Manage bot cogs and extensions."""
-    pass
-
-
-@cog.command()
-def available():
-    """List all available cogs from repository."""
-    from multicord.utils.template_repository import TemplateRepository
-    from multicord.utils.cog_repository import CogRepository
-
-    # Get template repository
-    template_repo = TemplateRepository()
-
-    try:
-        # Clone/update repository
-        repo_path = template_repo.clone_repository('official')
-
-        # Get cog repository
-        cog_repo = CogRepository(repo_path)
-        available_cogs = cog_repo.list_available_cogs()
-
-        if not available_cogs:
-            display.warning("No cogs available in repository")
-            return
-
-        console.print("\n[bold cyan]Available Cogs[/]\n")
-
-        # Group cogs by category
-        from collections import defaultdict
-        by_category = defaultdict(list)
-
-        for cog_id, cog_info in available_cogs.items():
-            category = cog_info.get('category', 'other')
-            by_category[category].append((cog_id, cog_info))
-
-        # Display by category
-        for category, cogs in sorted(by_category.items()):
-            # Get category display name
-            category_name = category.replace('_', ' ').title()
-            console.print(f"\n[yellow]{category_name}[/]")
-
-            for cog_id, cog_info in sorted(cogs, key=lambda x: x[1].get('name', '')):
-                name = cog_info.get('name', cog_id)
-                desc = cog_info.get('description', 'No description')
-                version = cog_info.get('version', '?.?.?')
-                author = cog_info.get('author', 'Unknown')
-                featured = ' ⭐' if cog_info.get('featured') else ''
-
-                console.print(f"  [cyan]{cog_id}[/] ({version}){featured}")
-                console.print(f"    {desc}")
-                console.print(f"    [dim]by {author}[/]\n")
-
-        display.success(f"Total: {len(available_cogs)} cogs available")
-
-    except Exception as e:
-        display.error(f"Failed to list cogs: {e}")
-
-
-@cog.command()
-@click.argument('bot_name')
-def list(bot_name):
-    """List installed cogs for a bot."""
-    from multicord.local.bot_manager import BotManager
-    from multicord.utils.template_repository import TemplateRepository
-    from multicord.utils.cog_repository import CogRepository
-
-    manager = BotManager()
-    bot_path = manager.bots_dir / bot_name
-
-    if not bot_path.exists():
-        display.error(f"Bot '{bot_name}' not found")
-        return
-
-    # Get cog repository for metadata
-    template_repo = TemplateRepository()
-    try:
-        repo_path = template_repo.clone_repository('official')
-        cog_repo = CogRepository(repo_path)
-    except:
-        cog_repo = None
-
-    # Get installed cogs
-    installed = cog_repo.list_installed_cogs(bot_path) if cog_repo else []
-
-    if not installed:
-        display.warning(f"No cogs installed in '{bot_name}'")
-        return
-
-    console.print(f"\n[bold cyan]Installed Cogs for '{bot_name}'[/]\n")
-
-    table = Table(show_header=True, header_style="bold magenta")
-    table.add_column("Cog", style="cyan")
-    table.add_column("Version")
-    table.add_column("Description")
-
-    for cog_name in sorted(installed):
-        # Try to get cog info
-        cog_info = cog_repo.get_installed_cog_info(bot_path, cog_name) if cog_repo else {}
-
-        version = cog_info.get('version', '?.?.?')
-        description = cog_info.get('description', 'No description')
-
-        table.add_row(cog_name, version, description)
-
-    console.print(table)
-    display.success(f"Total: {len(installed)} cogs installed")
-
-
-@cog.command()
-@click.argument('bot_name')
-@click.argument('cog_name')
-@click.option('--offline', is_flag=True, help='Use cached templates without network updates')
-@click.option('--force-update', is_flag=True, help='Force update template repository before installing')
-@click.option('--no-deps', is_flag=True, help='Skip automatic dependency installation')
-def add(bot_name, cog_name, offline, force_update, no_deps):
-    """Add a cog to an existing bot.
-
-    Automatically resolves and installs cog dependencies.
-    Use --no-deps to skip dependency installation (not recommended).
-    """
-    import os
-    from multicord.local.bot_manager import BotManager
-    from multicord.utils.template_repository import TemplateRepository
-    from multicord.utils.cog_repository import CogRepository, CircularDependencyError
-
-    # Set environment variables for Git operations
-    if offline:
-        os.environ['MULTICORD_OFFLINE'] = '1'
-
-    manager = BotManager()
-    bot_path = manager.bots_dir / bot_name
-
-    if not bot_path.exists():
-        display.error(f"Bot '{bot_name}' not found")
-        return
-
-    display.info(f"Installing cog '{cog_name}' into '{bot_name}'...")
-
-    try:
-        # Get template repository
-        template_repo = TemplateRepository()
-        repo_path = template_repo.clone_repository('official', force_update=force_update)
-
-        # Get cog repository
-        cog_repo = CogRepository(repo_path)
-
-        # Check if cog exists
-        cog_metadata = cog_repo.get_cog_metadata(cog_name)
-        if not cog_metadata:
-            display.error(f"Cog '{cog_name}' not found in repository")
-            return
-
-        # Check for dependencies
-        missing_deps = cog_repo.check_missing_dependencies(bot_path, cog_name)
-        if missing_deps and not no_deps:
-            console.print(f"\n[cyan]Checking dependencies for '{cog_name}'...[/]")
-            for dep_name, version_req in missing_deps:
-                console.print(f"  ⚠ Missing: {dep_name} ({version_req})")
-
-            if not click.confirm("\nInstall dependencies automatically?", default=True):
-                display.warning("Installation cancelled (dependencies required)")
-                return
-
-            # Show dependency installation progress
-            console.print()
-            deps_to_install = cog_repo.resolve_dependencies(cog_name, bot_path)
-            for dep_name in deps_to_install:
-                console.print(f"  → Installing {dep_name}...", end=" ")
-                cog_repo.install_cog(bot_path, dep_name, auto_install_deps=False)
-                console.print("[green]✓[/]")
-
-        # Install the cog
-        console.print(f"  → Installing {cog_name}...", end=" ")
-        cog_repo.install_cog(bot_path, cog_name, auto_install_deps=not no_deps)
-        console.print("[green]✓[/]")
-
-        display.success(f"\n✓ Cog '{cog_name}' installed successfully")
-
-        # Show next steps
-        console.print("\n[yellow]Next steps:[/]")
-        console.print(f"  1. Restart your bot to load the cog")
-        console.print(f"  2. Use the cog's commands (see README in cog directory)")
-
-    except CircularDependencyError as e:
-        display.error(f"Circular dependency detected: {e}")
-    except ValueError as e:
-        display.error(str(e))
-    except Exception as e:
-        display.error(f"Failed to install cog: {e}")
-
-
-@cog.command()
-@click.argument('bot_name')
-@click.argument('cog_name')
-def remove(bot_name, cog_name):
-    """Remove a cog from a bot."""
-    from multicord.local.bot_manager import BotManager
-    from multicord.utils.template_repository import TemplateRepository
-    from multicord.utils.cog_repository import CogRepository
-
-    manager = BotManager()
-    bot_path = manager.bots_dir / bot_name
-
-    if not bot_path.exists():
-        display.error(f"Bot '{bot_name}' not found")
-        return
-
-    if not click.confirm(f"Remove cog '{cog_name}' from '{bot_name}'?"):
-        display.info("Removal cancelled")
-        return
-
-    try:
-        # Get template repository
-        template_repo = TemplateRepository()
-        repo_path = template_repo.clone_repository('official')
-
-        # Get cog repository
-        cog_repo = CogRepository(repo_path)
-
-        # Remove the cog
-        cog_repo.remove_cog(bot_path, cog_name)
-
-        display.success(f"✓ Cog '{cog_name}' removed successfully")
-        display.warning("Note: Dependencies were not uninstalled automatically")
-
-    except ValueError as e:
-        display.error(str(e))
-    except Exception as e:
-        display.error(f"Failed to remove cog: {e}")
-
-
-@cog.command()
-@click.argument('bot_name')
-@click.option('--all', 'update_all', is_flag=True, help='Update all installed cogs')
-@click.argument('cog_name', required=False)
-def update(bot_name, update_all, cog_name):
-    """Update cogs in a bot to latest version."""
-    from multicord.local.bot_manager import BotManager
-    from multicord.utils.template_repository import TemplateRepository
-    from multicord.utils.cog_repository import CogRepository
-
-    manager = BotManager()
-    bot_path = manager.bots_dir / bot_name
-
-    if not bot_path.exists():
-        display.error(f"Bot '{bot_name}' not found")
-        return
-
-    try:
-        # Get repositories
-        template_repo = TemplateRepository()
-        repo_path = template_repo.clone_repository('official')
-        cog_repo = CogRepository(repo_path)
-
-        if update_all:
-            # Update all installed cogs
-            installed = cog_repo.list_installed_cogs(bot_path)
-
-            if not installed:
-                display.warning("No cogs installed")
-                return
-
-            display.info(f"Updating {len(installed)} cogs...")
-
-            for cog in installed:
-                try:
-                    cog_repo.update_cog(bot_path, cog)
-                    display.success(f"✓ Updated {cog}")
-                except Exception as e:
-                    display.error(f"✗ Failed to update {cog}: {e}")
-
-            display.success("Update complete")
-
-        elif cog_name:
-            # Update specific cog
-            display.info(f"Updating cog '{cog_name}'...")
-            cog_repo.update_cog(bot_path, cog_name)
-            display.success(f"✓ Cog '{cog_name}' updated successfully")
-
-        else:
-            display.error("Specify a cog name or use --all to update all cogs")
-
-    except ValueError as e:
-        display.error(str(e))
-    except Exception as e:
-        display.error(f"Failed to update cog: {e}")
 
 
 @cli.group()
@@ -2235,7 +2607,7 @@ def token_set(bot_name, token_value):
         storage_method = token_mgr.get_storage_method()
         display.success(f"Token stored securely using: {storage_method}")
         display.info("Old .env file can be safely deleted (token migrated)")
-        display.info(f"Start bot with: multicord bot start {bot_name}")
+        display.info(f"Start bot with: multicord bot run {bot_name}")
     except ValueError as e:
         display.error(str(e))
         sys.exit(1)

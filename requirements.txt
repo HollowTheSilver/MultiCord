@@ -25,5 +25,8 @@ toml>=0.10.0
 # Local Bot Management
 psutil>=5.9.0
 
+# Docker Integration (Phase 5.1)
+docker>=7.0.0
+
 # Async Support
 aiofiles>=23.0.0
