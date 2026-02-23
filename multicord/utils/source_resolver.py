@@ -16,7 +16,6 @@ from multicord.constants import (
     OFFICIAL_REPOS,
     OFFICIAL_TEMPLATES,
     OFFICIAL_COGS,
-    OFFICIAL_CACHE_DIR,
     USER_REPOS_DIR,
     DEFAULT_BRANCH,
     CACHE_TTL_SECONDS,
@@ -32,21 +31,19 @@ display = Display()
 
 class SourceResolver:
     """
-    Resolves source names to local paths, auto-fetching official sources on first use.
+    Resolves source names to local paths, auto-fetching built-in sources on first use.
 
     Sources can be:
-    1. Official built-ins (auto-fetched from GitHub on first use)
+    1. Built-in sources (auto-fetched from GitHub on first use)
     2. User-imported Git repos (tracked in repos.json)
     """
 
     def __init__(self, base_dir: Optional[Path] = None):
         self.base_dir = base_dir or Path.home() / '.multicord'
-        self.official_dir = self.base_dir / OFFICIAL_CACHE_DIR
         self.repos_dir = self.base_dir / USER_REPOS_DIR
         self.repos_config_file = self.base_dir / 'config' / 'repos.json'
 
         # Ensure directories exist
-        self.official_dir.mkdir(parents=True, exist_ok=True)
         self.repos_dir.mkdir(parents=True, exist_ok=True)
         self.repos_config_file.parent.mkdir(parents=True, exist_ok=True)
 
@@ -66,7 +63,7 @@ class SourceResolver:
         """
         # 1. Check official built-ins (always available)
         if name in OFFICIAL_REPOS:
-            return self._ensure_official_source(name, force_update)
+            return self._ensure_built_in_source(name, force_update)
 
         # 2. Check user's imported Git repos
         user_repos = self._load_user_repos()
@@ -78,20 +75,20 @@ class SourceResolver:
         self._show_not_found_error(name)
         sys.exit(1)
 
-    def _ensure_official_source(self, name: str, force_update: bool = False) -> Path:
-        """Ensure official source is available locally, fetching if needed."""
-        cache_path = self.official_dir / name
+    def _ensure_built_in_source(self, name: str, force_update: bool = False) -> Path:
+        """Ensure built-in source is available locally, fetching if needed."""
+        cache_path = self.repos_dir / name
         git_url = OFFICIAL_REPOS[name]
 
         if not cache_path.exists():
             # First use - auto-fetch
-            display.info(f"Fetching official '{name}'...")
+            display.info(f"Fetching built-in '{name}'...")
             self._git_clone(git_url, cache_path)
             self._update_cache_timestamp(name)
-            display.success(f"Official '{name}' ready")
+            display.success(f"Built-in '{name}' ready")
         elif force_update or self._is_cache_stale(name):
             # Update if stale or forced
-            display.info(f"Updating official '{name}'...")
+            display.info(f"Updating built-in '{name}'...")
             self._git_pull(cache_path)
             self._update_cache_timestamp(name)
 
@@ -150,8 +147,8 @@ class SourceResolver:
         self._save_cache_info(cache_info)
 
     def _load_cache_info(self) -> Dict[str, Any]:
-        """Load official cache metadata."""
-        cache_file = self.base_dir / 'config' / 'official_cache.json'
+        """Load built-in cache metadata."""
+        cache_file = self.base_dir / 'config' / 'built-in_cache.json'
         if cache_file.exists():
             try:
                 return json.loads(cache_file.read_text())
@@ -160,8 +157,8 @@ class SourceResolver:
         return {}
 
     def _save_cache_info(self, cache_info: Dict[str, Any]):
-        """Save official cache metadata."""
-        cache_file = self.base_dir / 'config' / 'official_cache.json'
+        """Save built-in cache metadata."""
+        cache_file = self.base_dir / 'config' / 'built-in_cache.json'
         cache_file.parent.mkdir(parents=True, exist_ok=True)
         cache_file.write_text(json.dumps(cache_info, indent=2))
 
@@ -315,9 +312,9 @@ class SourceResolver:
         Returns:
             True if updated successfully
         """
-        # Handle official sources
+        # Handle built-in sources
         if name in OFFICIAL_REPOS:
-            self._ensure_official_source(name, force_update=True)
+            self._ensure_built_in_source(name, force_update=True)
             return True
 
         # Handle user repos
@@ -352,7 +349,7 @@ class SourceResolver:
                 'source': 'built-in',
                 'url': OFFICIAL_REPOS[name],
                 'description': self._get_builtin_description(name),
-                'cached': (self.official_dir / name).exists()
+                'cached': (self.repos_dir / name).exists()
             }
 
         for name in OFFICIAL_COGS:
@@ -361,7 +358,7 @@ class SourceResolver:
                 'source': 'built-in',
                 'url': OFFICIAL_REPOS[name],
                 'description': self._get_builtin_description(name),
-                'cached': (self.official_dir / name).exists()
+                'cached': (self.repos_dir / name).exists()
             }
 
         # Add user repos
@@ -505,14 +502,14 @@ class SourceResolver:
         Clear cached source data from disk.
 
         Args:
-            name: Specific source to clear, or None for all official caches
+            name: Specific source to clear, or None for all built-in caches
 
         Returns:
             True if successful
         """
         if name:
             if name in OFFICIAL_REPOS:
-                cache_path = self.official_dir / name
+                cache_path = self.repos_dir / name
                 if cache_path.exists():
                     shutil.rmtree(cache_path)
                 # Clear timestamp
@@ -520,12 +517,12 @@ class SourceResolver:
                 cache_info.pop(name, None)
                 self._save_cache_info(cache_info)
             else:
-                raise ValueError(f"Cannot clear cache for non-official source '{name}'. Use 'repo remove' instead.")
+                raise ValueError(f"Cannot clear cache for non-built-in source '{name}'. Use 'repo remove' instead.")
         else:
-            # Clear all official caches
-            if self.official_dir.exists():
-                shutil.rmtree(self.official_dir)
-                self.official_dir.mkdir(parents=True, exist_ok=True)
+            # Clear all built-in caches
+            if self.repos_dir.exists():
+                shutil.rmtree(self.repos_dir)
+                self.repos_dir.mkdir(parents=True, exist_ok=True)
             self._save_cache_info({})
 
         return True

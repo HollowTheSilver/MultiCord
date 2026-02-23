@@ -176,7 +176,12 @@ class GitRepository:
             if self.config.shallow_clone:
                 args.extend(['--depth', '1', '--single-branch'])
 
-            args.extend(['-b', self.branch, self.repo_url, str(self.local_path)])
+            # Only specify branch if explicitly set (not 'main' default)
+            # Otherwise, Git will automatically use the remote's default branch
+            if self.branch and self.branch != 'main':
+                args.extend(['-b', self.branch])
+
+            args.extend([self.repo_url, str(self.local_path)])
 
             self._run_git_command(
                 args,
@@ -198,15 +203,21 @@ class GitRepository:
             print(f"Updating template repository...", file=sys.stderr)
 
         def operation():
-            # Fetch latest changes
+            # Fetch all branches from origin
             self._run_git_command(
-                ['git', 'fetch', 'origin', self.branch],
+                ['git', 'fetch', 'origin'],
                 timeout=self.config.fetch_timeout
             )
 
-            # Reset to latest (safer than pull, avoids merge conflicts)
+            # Get current branch name
+            current_branch = self._run_git_command(
+                ['git', 'rev-parse', '--abbrev-ref', 'HEAD'],
+                timeout=5
+            ).strip()
+
+            # Reset to latest on current branch (safer than pull, avoids merge conflicts)
             self._run_git_command(
-                ['git', 'reset', '--hard', f'origin/{self.branch}'],
+                ['git', 'reset', '--hard', f'origin/{current_branch}'],
                 timeout=self.config.checkout_timeout
             )
 

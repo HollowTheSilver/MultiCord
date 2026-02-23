@@ -110,8 +110,9 @@ def login(api_url, no_browser, method):
         multicord auth login --method browser   # Force browser callback
     """
     from multicord.auth import authenticate
+    from multicord.constants import DEFAULT_API_URL
 
-    api_url = api_url or "http://localhost:8000"
+    api_url = api_url or DEFAULT_API_URL
 
     client = APIClient(api_url=api_url)
     if not client.is_online():
@@ -133,8 +134,9 @@ def login(api_url, no_browser, method):
 def logout(api_url):
     """Logout from MultiCord cloud services."""
     from multicord.auth import logout as auth_logout
+    from multicord.constants import DEFAULT_API_URL
 
-    api_url = api_url or "http://localhost:8000"
+    api_url = api_url or DEFAULT_API_URL
     auth_logout(api_url)
     display.success("Successfully logged out")
 
@@ -265,23 +267,28 @@ def list(local, cloud, sync, status):
 
 @bot.command()
 @click.argument('name', callback=validate_bot_name_callback)
-@click.option('--from', 'source', default='basic', help='Source to create from (template name or imported repo)')
+@click.option('--from', 'source', default='basic', help='Source: repo name, Git URL, or local path')
 @click.option('--cloud', is_flag=True, help='Create in cloud instead of locally')
 @click.option('--token', 'set_token_flag', is_flag=True, help='Prompt for Discord token after creation')
 def create(name, source, cloud, set_token_flag):
-    """Create a new bot from a source (template or imported repo).
+    """Create a new bot from any source.
 
     Sources can be:
-      - Built-in templates: basic, advanced (auto-fetched on first use)
-      - Imported repos: Use 'multicord repo import' to add custom sources
+      - Built-in templates: basic, advanced
+      - Imported repos: custom repo names
+      - Git URLs: https://github.com/user/bot
+      - Local paths: ./my-bot or /absolute/path
 
     Examples:
-        multicord bot create my-bot                  # From 'basic' (default)
-        multicord bot create my-bot --from advanced  # From 'advanced' template
-        multicord bot create my-bot --from my-repo   # From imported repo
-        multicord bot create my-bot --token          # Create and set token
+        multicord bot create my-bot                                    # From 'basic' (default)
+        multicord bot create my-bot --from advanced                    # From built-in
+        multicord bot create my-bot --from my-repo                     # From imported repo
+        multicord bot create my-bot --from https://github.com/user/bot # From Git URL
+        multicord bot create my-bot --from ./local-bot                 # From local path
     """
     import getpass
+    import re
+    from pathlib import Path
     from multicord.utils.source_resolver import SourceResolver
 
     if cloud:
@@ -304,13 +311,61 @@ def create(name, source, cloud, set_token_flag):
         manager = BotManager()
         resolver = SourceResolver()
 
-        # Resolve source to local path (auto-fetches if needed)
-        display.info(f"Creating local bot '{name}' from '{source}'...")
+        # Detect source type: Git URL, local path, or repo name
+        is_git_url = source.startswith('https://') or source.startswith('git@')
+        is_local_path = not is_git_url and Path(source).exists()
 
-        try:
-            # SourceResolver handles lazy-fetch for built-ins and imported repo lookup
-            source_path = resolver.resolve_source(source)
-            bot_path = manager.create_bot_from_path(name, source_path, source_name=source)
+        if is_git_url:
+            # Clone from Git URL directly
+            display.info(f"Creating bot '{name}' from Git URL...")
+            try:
+                from multicord.utils.git_operations import GitRepository, GitOperationConfig
+
+                bot_path = manager.bots_dir / name
+                if bot_path.exists():
+                    display.error(f"Bot '{name}' already exists")
+                    sys.exit(1)
+
+                config = GitOperationConfig.from_env()
+                git_repo = GitRepository(source, bot_path, 'main', config)
+                git_repo.ensure_repository(force_update=False)
+
+                # Create metadata
+                import json
+                meta_file = bot_path / '.multicord_meta.json'
+                meta_file.write_text(json.dumps({
+                    'source': 'git',
+                    'source_url': source,
+                    'created_at': __import__('datetime').datetime.now().isoformat(),
+                }, indent=2))
+
+            except Exception as e:
+                display.error(f"Failed to clone from Git: {e}")
+                sys.exit(1)
+
+        elif is_local_path:
+            # Copy from local path directly
+            source_path = Path(source).resolve()
+            display.info(f"Creating bot '{name}' from local path...")
+
+            if not source_path.is_dir():
+                display.error(f"Not a directory: {source}")
+                sys.exit(1)
+
+            try:
+                bot_path = manager.create_bot_from_path(name, source_path, source_name='local')
+            except Exception as e:
+                display.error(f"Failed to create from local path: {e}")
+                sys.exit(1)
+
+        else:
+            # Use existing resolver flow for repo names (built-ins + imported repos)
+            display.info(f"Creating local bot '{name}' from '{source}'...")
+
+            try:
+                # SourceResolver handles lazy-fetch for built-ins and imported repo lookup
+                source_path = resolver.resolve_source(source)
+                bot_path = manager.create_bot_from_path(name, source_path, source_name=source)
 
             # Show success with source info
             meta_file = bot_path / ".multicord_meta.json"
@@ -1924,131 +1979,6 @@ def bot_cog_update(cog_name, bot_name, update_all):
     except Exception as e:
         display.error(f"Failed to update cog: {e}")
 
-
-# =============================================================================
-# BOT IMPORT COMMAND
-# =============================================================================
-
-@bot.command(name='import')
-@click.argument('source')
-@click.option('--name', help='Bot name (auto-generated from source if not specified)')
-def bot_import(source, name):
-    """
-    Import an existing bot directly from Git URL or local path.
-
-    Unlike 'repo import', this creates a bot instance directly without
-    adding it as a reusable source.
-
-    For Git URLs: Clones to ~/.multicord/bots/
-    For local paths: Registers in-place (no copying)
-
-    Examples:
-        multicord bot import https://github.com/user/my-bot
-        multicord bot import ./my-local-bot
-        multicord bot import ./my-local-bot --name my-bot
-    """
-    import re
-    from pathlib import Path
-
-    manager = BotManager()
-
-    # Determine if source is Git URL or local path
-    is_git_url = source.startswith('https://') or source.startswith('git@')
-
-    if is_git_url:
-        # Extract repo name from URL for default bot name
-        if not name:
-            match = re.search(r'/([^/]+?)(?:\.git)?$', source)
-            name = match.group(1) if match else 'imported-bot'
-
-        bot_path = manager.bots_dir / name
-
-        if bot_path.exists():
-            display.error(f"Bot '{name}' already exists")
-            display.info(f"Use a different name with: --name <new-name>")
-            sys.exit(1)
-
-        display.info(f"Cloning '{source}' as '{name}'...")
-
-        try:
-            from multicord.utils.git_operations import GitRepository, GitOperationConfig
-            config = GitOperationConfig.from_env()
-            git_repo = GitRepository(source, bot_path, 'main', config)
-            git_repo.ensure_repository(force_update=False)
-
-            # Create metadata
-            import json
-            meta_file = bot_path / '.multicord_meta.json'
-            meta_file.write_text(json.dumps({
-                'source_type': 'git',
-                'source_url': source,
-                'imported_at': __import__('datetime').datetime.now().isoformat(),
-            }, indent=2))
-
-            display.success(f"Bot '{name}' imported successfully")
-            console.print(f"\n[dim]Location: {bot_path}[/]")
-            console.print(f"\n[yellow]Next steps:[/]")
-            console.print(f"  1. Add your DISCORD_TOKEN to .env")
-            console.print(f"  2. Run: multicord bot run {name}")
-
-        except Exception as e:
-            display.error(f"Failed to import from Git: {e}")
-            sys.exit(1)
-
-    else:
-        # Local path
-        source_path = Path(source).resolve()
-
-        if not source_path.exists():
-            display.error(f"Path not found: {source}")
-            sys.exit(1)
-
-        if not source_path.is_dir():
-            display.error(f"Not a directory: {source}")
-            sys.exit(1)
-
-        # Use directory name as bot name if not specified
-        bot_name = name or source_path.name
-
-        # Check if bot.py exists (minimal validation)
-        if not (source_path / 'bot.py').exists():
-            display.warning(f"No bot.py found in {source_path}")
-            if not click.confirm("Continue anyway?"):
-                display.info("Import cancelled")
-                return
-
-        # For local paths, we register in-place (no copying)
-        # Create a symlink or just track it
-        import json
-
-        # Create the registry entry
-        registry_file = manager.config_dir / 'config' / 'imported_bots.json'
-        registry_file.parent.mkdir(parents=True, exist_ok=True)
-
-        if registry_file.exists():
-            registry = json.loads(registry_file.read_text())
-        else:
-            registry = {}
-
-        if bot_name in registry:
-            display.error(f"Bot '{bot_name}' already registered")
-            display.info(f"Use a different name with: --name <new-name>")
-            sys.exit(1)
-
-        registry[bot_name] = {
-            'path': str(source_path),
-            'source_type': 'local',
-            'imported_at': __import__('datetime').datetime.now().isoformat(),
-        }
-        registry_file.write_text(json.dumps(registry, indent=2))
-
-        display.success(f"Bot '{bot_name}' registered from local path")
-        console.print(f"\n[dim]Location: {source_path}[/]")
-        console.print(f"\n[yellow]Next steps:[/]")
-        console.print(f"  1. Add your DISCORD_TOKEN to .env")
-        console.print(f"  2. Run: multicord bot run {bot_name}")
-
-
 # =============================================================================
 # REPO COMMANDS (Git-based sources only)
 # =============================================================================
@@ -2146,7 +2076,7 @@ def repo_import(git_url, name, description):
     Import a Git repository as a reusable source.
 
     The repository must be a Git URL (https:// or git@).
-    For local directories, use 'multicord bot import' instead.
+    For local directories, use 'multicord bot create --from <local-path>' instead.
 
     Examples:
         multicord repo import https://github.com/user/cool-template --as cool
@@ -2157,7 +2087,7 @@ def repo_import(git_url, name, description):
     # Validate it's a Git URL
     if not (git_url.startswith('https://') or git_url.startswith('git@')):
         display.error("repo import only accepts Git URLs")
-        display.info("For local directories, use: multicord bot import <local-path>")
+        display.info("For local directories, use: multicord bot create --from <local-path>")
         sys.exit(1)
 
     resolver = SourceResolver()

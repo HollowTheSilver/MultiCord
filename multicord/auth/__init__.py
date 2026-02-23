@@ -60,7 +60,7 @@ def is_localhost_api(api_url: str) -> bool:
     return False
 
 
-def authenticate(no_browser: bool = False, api_url: str = "http://localhost:8000", method: Optional[str] = None) -> bool:
+def authenticate(no_browser: bool = False, api_url: Optional[str] = None, method: Optional[str] = None) -> bool:
     """
     Authenticate with MultiCord API using environment-aware method selection.
 
@@ -78,6 +78,10 @@ def authenticate(no_browser: bool = False, api_url: str = "http://localhost:8000
     Returns:
         True if authentication successful
     """
+    from multicord.constants import DEFAULT_API_URL
+    if api_url is None:
+        api_url = DEFAULT_API_URL
+
     auth_client = DiscordAuth(api_url)
     if auth_client.is_authenticated():
         user_info = auth_client.get_user_info()
@@ -146,8 +150,12 @@ def get_tokens() -> Optional[dict]:
     return auth_client.get_tokens()
 
 
-def logout(api_url: str = "http://localhost:8000") -> None:
+def logout(api_url: Optional[str] = None) -> None:
     """Clear all stored authentication data."""
+    from multicord.constants import DEFAULT_API_URL
+    if api_url is None:
+        api_url = DEFAULT_API_URL
+
     # Clear from both auth methods (they use same keyring)
     auth_client = DiscordAuth(api_url)
     auth_client.logout()
