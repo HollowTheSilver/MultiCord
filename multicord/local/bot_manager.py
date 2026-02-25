@@ -95,11 +95,11 @@ class BotManager:
         Create a new bot from a pre-resolved source path.
 
         This method works with the SourceResolver pattern, where the source
-        (template or imported repo) has already been resolved to a local path.
+        (bot source or imported repo) has already been resolved to a local path.
 
         Args:
             name: Bot name to create
-            source_path: Path to the source directory (template or repo)
+            source_path: Path to the source directory (bot or repo)
             source_name: Name of the source for metadata tracking
 
         Returns:
@@ -113,13 +113,17 @@ class BotManager:
             raise ValueError(f"Bot '{name}' already exists")
 
         try:
-            # Copy source files to bot directory
-            shutil.copytree(source_path, bot_path, dirs_exist_ok=True)
+            # Discover bot structure dynamically
+            from multicord.utils.source_resolver import SourceResolver, discover_bot_structure
 
-            # Remove .git directory if present (don't carry over source's git history)
-            git_dir = bot_path / ".git"
-            if git_dir.exists():
-                shutil.rmtree(git_dir)
+            bot_files_path, metadata_path, entry_point = discover_bot_structure(source_path, source_name)
+
+            # Copy bot files from discovered location
+            SourceResolver.copy_source_files(bot_files_path, bot_path)
+
+            # Copy metadata if found and not already copied
+            if metadata_path and not (bot_path / metadata_path.name).exists():
+                shutil.copy2(metadata_path, bot_path / metadata_path.name)
 
             # Auto-create .env file from .env.example
             env_example = bot_path / ".env.example"
@@ -141,41 +145,27 @@ class BotManager:
                 if not install_success:
                     raise RuntimeError(f"Failed to install requirements: {install_msg}")
 
-            # Read source metadata if available
+            # Read source metadata from discovered manifest
             source_version = "unknown"
             requires_cogs = []
 
-            # Check for v3.0 template.json manifest
-            template_manifest = source_path / "template.json"
-            if template_manifest.exists():
+            if metadata_path and metadata_path.exists():
                 try:
-                    with open(template_manifest, encoding='utf-8') as f:
+                    with open(metadata_path, encoding='utf-8') as f:
                         manifest_data = json.load(f)
                         source_version = manifest_data.get("version", "unknown")
                         requires_cogs = manifest_data.get("requires_cogs", [])
                 except (json.JSONDecodeError, IOError):
                     pass
 
-            # Fall back to legacy manifest.json
-            if source_version == "unknown":
-                legacy_manifest = source_path / "manifest.json"
-                if legacy_manifest.exists():
-                    try:
-                        with open(legacy_manifest, encoding='utf-8') as f:
-                            manifest_data = json.load(f)
-                            source_version = manifest_data.get("version", "unknown")
-                            # Legacy format uses auto_install_cogs
-                            requires_cogs = manifest_data.get("auto_install_cogs", [])
-                    except (json.JSONDecodeError, IOError):
-                        pass
-
             # Create metadata file with version tracking
+            from multicord import __version__
             meta_file = bot_path / ".multicord_meta.json"
             meta_data = {
                 "source": source_name,
                 "source_version": source_version,
                 "created_at": datetime.now().isoformat(),
-                "multicord_version": "3.0.0"
+                "multicord_version": __version__
             }
             with open(meta_file, 'w', encoding='utf-8') as f:
                 json.dump(meta_data, f, indent=2)
@@ -183,7 +173,7 @@ class BotManager:
             # Auto-install required cogs if specified
             if requires_cogs:
                 print(f"\nAuto-installing cogs for '{source_name}'...")
-                from multicord.utils.source_resolver import SourceResolver
+                from multicord.utils.source_resolver import SourceResolver, discover_cog_structure
                 resolver = SourceResolver()
 
                 for cog_spec in requires_cogs:
@@ -201,10 +191,14 @@ class BotManager:
                         print(f"  Installing cog '{cog_id}'... ", end="", flush=True)
                         # Resolve cog source path
                         cog_source_path = resolver.resolve_source(cog_id)
-                        # Copy cog to bot's cogs directory
+                        # Discover cog structure dynamically
+                        cog_package_path, cog_metadata_path = discover_cog_structure(cog_source_path, cog_id)
+                        # Copy cog package to bot's cogs directory
                         cog_dest = bot_path / "cogs" / cog_id
-                        cog_dest.parent.mkdir(parents=True, exist_ok=True)
-                        shutil.copytree(cog_source_path, cog_dest, dirs_exist_ok=True)
+                        SourceResolver.copy_source_files(cog_package_path, cog_dest)
+                        # Copy cog metadata if found
+                        if cog_metadata_path:
+                            shutil.copy2(cog_metadata_path, cog_dest / cog_metadata_path.name)
                         # Install cog requirements if any
                         cog_requirements = cog_dest / "requirements.txt"
                         if cog_requirements.exists():

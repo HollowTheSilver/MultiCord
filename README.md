@@ -233,8 +233,8 @@ Note: For local directories, use `multicord bot create --from <local-path>` inst
 **Built-in sources** (always available, no import needed):
 | Name | Type | Description |
 |------|------|-------------|
-| `basic` | Template | Simple beginner-friendly bot |
-| `advanced` | Template | Production-ready with sharding |
+| `basic` | Bot | Simple beginner-friendly bot |
+| `advanced` | Bot | Production-ready with sharding |
 | `permissions` | Cog | 9-level permission hierarchy |
 | `moderation` | Cog | Kick, ban, timeout, warnings |
 | `music` | Cog | YouTube playback, queue management |
@@ -380,7 +380,7 @@ export MULTICORD_BOT_PORT_END=8200
 
 ## Available Sources
 
-### Built-in Templates
+### Built-in Bots
 
 - **basic** - Simple extensible bot with command handling and events
 - **advanced** - Production-ready with sharding, health checks, structured logging

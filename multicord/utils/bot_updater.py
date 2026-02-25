@@ -429,7 +429,9 @@ class BotUpdater:
                 if not dry_run:
                     if target.exists():
                         shutil.rmtree(target)
-                    shutil.copytree(item, target)
+                    # Use canonical copy implementation
+                    from multicord.utils.source_resolver import SourceResolver
+                    SourceResolver.copy_source_files(item, target)
                 files_updated.append(f"{item.name}/ (directory)")
 
         return files_updated, files_merged, files_skipped, conflicts

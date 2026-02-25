@@ -1,8 +1,8 @@
 """
-Auto-generation of v3.0 manifests for Discord.py bots.
+Auto-generation of manifests for Discord.py bots.
 
 Enables importing any Discord.py bot by automatically detecting structure
-and generating appropriate template.json and cog.json manifests.
+and generating appropriate bot.json and cog.json manifests.
 """
 
 import json
@@ -259,9 +259,9 @@ class BotStructureAnalyzer:
 
 class ManifestGenerator:
     """
-    Generates v3.0 manifests for Discord.py bots.
+    Generates manifests for Discord.py bots.
 
-    Creates template.json and cog.json files based on bot structure analysis.
+    Creates bot.json and cog.json files based on bot structure analysis.
     """
 
     def __init__(self):
@@ -275,11 +275,11 @@ class ManifestGenerator:
         **overrides
     ) -> Dict[str, Any]:
         """
-        Generate template.json manifest for a Discord.py bot.
+        Generate bot.json manifest for a Discord.py bot.
 
         Args:
             bot_path: Path to bot directory
-            template_id: Custom template ID (defaults to directory name)
+            template_id: Custom bot ID (defaults to directory name)
             **overrides: Manual overrides for manifest fields
 
         Returns:
@@ -417,7 +417,7 @@ class ManifestGenerator:
 
         Args:
             manifest: Manifest dict
-            output_path: Path to output file (template.json or cog.json)
+            output_path: Path to output file (bot.json or cog.json)
         """
         with open(output_path, 'w', encoding='utf-8') as f:
             json.dump(manifest, f, indent=2, ensure_ascii=False)

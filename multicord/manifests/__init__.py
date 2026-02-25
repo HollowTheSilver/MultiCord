@@ -1,9 +1,9 @@
 """
-MultiCord Manifest System (v3.0).
+MultiCord Manifest System.
 
-This package provides the new 3-layer hybrid manifest system:
+This package provides the 3-layer hybrid manifest system:
 - Layer 1: multicord.json (repository-level manifest)
-- Layer 2: template.json/cog.json (item-level manifests)
+- Layer 2: bot.json/cog.json (item-level manifests)
 - Layer 3: config.toml/.env (user configuration)
 
 Key components:
@@ -22,5 +22,3 @@ __all__ = [
     'ManifestGenerator',
     'BotStructureAnalyzer',
 ]
-
-__version__ = '3.0.0'

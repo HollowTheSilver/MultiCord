@@ -76,7 +76,7 @@ class CogManager:
 
     def list_available_cogs(self) -> Dict[str, Dict[str, Any]]:
         """
-        List all available cogs from the repository (v3.0 format only).
+        List all available cogs from the repository.
 
         Returns:
             Dictionary of cog metadata keyed by cog ID
@@ -322,8 +322,18 @@ class CogManager:
         if not cogs_init.exists():
             cogs_init.write_text("# Cogs directory\n")
 
-        # Copy cog to bot's cogs directory
-        shutil.copytree(cog_source, cog_dest)
+        # Discover cog structure and copy intelligently
+        from multicord.utils.source_resolver import SourceResolver, discover_cog_structure
+
+        cog_package_path, cog_metadata_path = discover_cog_structure(cog_source, cog_name)
+
+        # Copy cog package
+        SourceResolver.copy_source_files(cog_package_path, cog_dest)
+
+        # Copy metadata if found
+        if cog_metadata_path:
+            import shutil
+            shutil.copy2(cog_metadata_path, cog_dest / cog_metadata_path.name)
 
         # Install cog requirements if they exist
         requirements_file = cog_dest / "requirements.txt"
