@@ -46,7 +46,7 @@
       "description": "Repository maintainers",
       "items": {
         "type": "string",
-        "examples": ["MultiCord Team", "username@example.com"]
+        "examples": ["HollowTheSilver", "username@example.com"]
       },
       "minItems": 1
     },
@@ -145,7 +145,7 @@
       "description": "Official Discord bot templates and cogs for MultiCord CLI",
       "version": "3.0.0",
       "url": "https://github.com/HollowTheSilver/MultiCord-Templates",
-      "maintainers": ["MultiCord Team"],
+      "maintainers": ["HollowTheSilver"],
       "license": "MIT",
       "last_updated": "2025-11-27",
       "items": [

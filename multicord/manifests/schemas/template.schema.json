@@ -45,7 +45,7 @@
     "author": {
       "type": "string",
       "description": "Template author name or organization",
-      "examples": ["MultiCord Team", "username"]
+      "examples": ["HollowTheSilver", "username"]
     },
     "category": {
       "type": "string",
@@ -265,7 +265,7 @@
       "name": "Moderation Bot",
       "description": "Minimal scaffolding bot that loads moderation features from moderation-tools cog",
       "version": "3.0.0",
-      "author": "MultiCord Team",
+      "author": "HollowTheSilver",
       "category": "moderation",
       "tags": ["moderation", "admin", "server-management", "cog-based"],
       "discord_py_version": ">=2.0.0",

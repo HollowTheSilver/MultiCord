@@ -11,7 +11,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 setup(
     name="multicord",
     version="1.0.0",
-    author="MultiCord Team",
+    author="HollowTheSilver",
     author_email="",
     description="Run multiple Discord bots with ease - local orchestration and cloud management",
     long_description=long_description,
