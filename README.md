@@ -1,17 +1,15 @@
 # MultiCord CLI
 
-**Run Multiple Discord Bots Like a Pro**
-
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 
-MultiCord transforms Discord bot management from chaos to control. Run 10 bots on your laptop or deploy 1000 to the cloud - all with simple, intuitive commands.
+A command-line tool for managing multiple Discord bots with process isolation, dependency management, and deployment capabilities.
 
 ---
 
-## What is MultiCord?
+## Overview
 
-MultiCord is a professional CLI tool for managing multiple Discord bots with complete process isolation, health monitoring, and cloud integration.
+MultiCord simplifies running multiple Discord.py bots locally or deploying them to cloud infrastructure. Each bot runs with isolated dependencies, automatic port assignment, and comprehensive health monitoring.
 
 ### The Problem
 ```bash
@@ -34,7 +32,7 @@ multicord bot status  # Real-time monitoring with health metrics
 
 ## Key Features
 
-### Local Bot Management (Free Forever)
+### Local Bot Management
 
 - **Per-Bot Isolated Virtual Environments**
   - Complete dependency isolation (different discord.py versions per bot)
@@ -68,16 +66,15 @@ multicord bot status  # Real-time monitoring with health metrics
   - Compressed backups with one-command rollback
 
 - **Built-in Sources (Zero Setup)**
-  - Official templates and cogs auto-fetched on first use
+  - Built-in templates and cogs auto-fetched on first use
   - No import needed for built-ins - just reference by name
   - Templates: `basic`, `advanced`
   - Cogs: `permissions`, `moderation`, `music`
 
-### Cloud Integration (Premium)
-
-- **Multi-Node Deployment**: Deploy bots to cloud infrastructure
-- **Configuration Sync**: Bidirectional sync with conflict resolution
-- **Offline Caching**: Transparent fallback when API unavailable
+- **Cloud Integration**
+  - Multi-node deployment to cloud infrastructure
+  - Bidirectional configuration sync with conflict resolution
+  - Offline caching with transparent API fallback
 
 ---
 
@@ -134,22 +131,20 @@ multicord bot stop --all
 
 ## Command Reference
 
-MultiCord provides **44 commands** across **8 command groups** plus 1 standalone command.
+MultiCord provides **43 commands** across **8 command groups** plus 1 standalone command.
 
-### Bot Management (`multicord bot`) - 17 commands
+### Bot Management (`multicord bot`) - 16 commands
 
 Complete bot lifecycle management with health monitoring.
 
-#### Create & Import
-- `multicord bot create <name> --from <source>` - Create bot from a source
-  - Sources: built-in names (`basic`, `advanced`) or imported repos
+#### Create
+- `multicord bot create <name> --from <source>` - Create bot from any source
+  - Built-in names: `basic`, `advanced`
+  - Imported repos: custom repo names
+  - Git URLs: `https://github.com/user/bot`
+  - Local paths: `./my-bot` or `/absolute/path`
   - Automatic: Isolated venv, dependency install, .env creation, auto-cog install
   - **Flags**: `--token` (prompt for Discord token after creation)
-
-- `multicord bot import <source>` - Import an existing bot directly
-  - Git URL: Clones repository
-  - Local path: Registers in-place (no copying)
-  - **Flags**: `--name` (override bot name)
 
 #### Lifecycle
 - `multicord bot run <name> [name2...]` - Run bot(s)
@@ -194,6 +189,8 @@ Complete bot lifecycle management with health monitoring.
 **Examples**:
 ```bash
 multicord bot create my-bot --from basic
+multicord bot create my-bot --from https://github.com/user/bot
+multicord bot create my-bot --from ./local-bot
 multicord bot run my-bot --local
 multicord bot check-updates --all
 multicord bot update my-bot --strategy safe-merge --dry-run
@@ -226,16 +223,18 @@ multicord bot cog list my-bot
 Manage Git-based sources. Built-in sources are always available without import.
 
 - `multicord repo list` - Show built-in + imported sources
-- `multicord repo import <git-url> --as <name>` - Import Git repository as a reusable source
+- `multicord repo import <git-url> --as <name>` - Import Git repository as reusable source (Git URLs only)
 - `multicord repo info <name>` - Show source details
 - `multicord repo update <name>` - Pull latest changes (git pull)
 - `multicord repo remove <name>` - Remove imported source
 
+Note: For local directories, use `multicord bot create --from <local-path>` instead.
+
 **Built-in sources** (always available, no import needed):
 | Name | Type | Description |
 |------|------|-------------|
-| `basic` | Template | Simple beginner-friendly bot |
-| `advanced` | Template | Production-ready with sharding |
+| `basic` | Bot | Simple beginner-friendly bot |
+| `advanced` | Bot | Production-ready with sharding |
 | `permissions` | Cog | 9-level permission hierarchy |
 | `moderation` | Cog | Kick, ban, timeout, warnings |
 | `music` | Cog | YouTube playback, queue management |
@@ -304,15 +303,13 @@ multicord bot create my-bot --from cool
 
 ```
 ~/.multicord/
-├── official/              # Auto-cached built-in sources (lazy-fetched)
-│   ├── basic/
-│   ├── advanced/
-│   ├── permissions/
-│   └── ...
-├── repos/                 # User-imported Git repositories
-│   └── my-custom/
+├── repos/                 # All sources (built-ins + user-imported)
+│   ├── basic/             # Built-in (auto-fetched)
+│   ├── advanced/          # Built-in (auto-fetched)
+│   ├── permissions/       # Built-in (auto-fetched)
+│   └── my-custom/         # User-imported
 ├── bots/                  # Bot instances
-│   ├── LinkGuard/
+│   ├── my-bot/
 │   │   ├── .venv/        # Isolated dependencies
 │   │   ├── bot.py
 │   │   ├── requirements.txt
@@ -321,7 +318,7 @@ multicord bot create my-bot --from cool
 │   │   │   └── permissions/
 │   │   ├── logs/
 │   │   └── data/
-│   └── MusicBot/
+│   └── music-bot/
 │       ├── .venv/        # Different discord.py version possible
 │       ├── bot.py
 │       └── requirements.txt
@@ -343,21 +340,52 @@ Built-in Sources (always available, zero setup)
   repos for reuse/sync
 ```
 
-**Key distinction**:
-- `repo import` = Git URLs only (versioned, updatable)
-- `bot import` = Git URLs or local paths (direct, untracked)
-- `bot create --from` = Copy from any source (built-in or imported)
+**Key concepts**:
+- **Built-ins**: No import needed, just reference by name
+- **repo import**: Import Git repositories for reuse across multiple bots (versioned, updatable)
+- **bot create --from**: Accepts repo names, Git URLs, or local paths
+  - Repo name: `--from basic` or `--from my-repo`
+  - Git URL: `--from https://github.com/user/bot`
+  - Local path: `--from ./my-bot`
+
+### Flexible Bot Structure
+
+MultiCord automatically detects Discord.py bots with non-standard entry points:
+
+**Supported entry points** (checked in order):
+1. `bot.py` (standard)
+2. `main.py` (common alternative)
+3. `run.py` (another common pattern)
+4. `__main__.py` (Python module pattern)
+
+All entry points are validated for Discord.py bot code before acceptance.
+
+### Environment Configuration
+
+Override default ports via environment variables:
+
+```bash
+# API connection
+export MULTICORD_API_URL=http://localhost:8000
+
+# OAuth callback (Discord login)
+export MULTICORD_OAUTH_PORT=8899
+
+# Bot port range
+export MULTICORD_BOT_PORT_START=8100
+export MULTICORD_BOT_PORT_END=8200
+```
 
 ---
 
 ## Available Sources
 
-### Official Templates
+### Built-in Bots
 
 - **basic** - Simple extensible bot with command handling and events
 - **advanced** - Production-ready with sharding, health checks, structured logging
 
-### Official Cogs
+### Built-in Cogs
 
 - **permissions** - Enterprise-grade 9-level permission hierarchy (~2,500 lines)
 - **moderation** - Kick, ban, timeout, warnings, auto-moderation
@@ -366,14 +394,15 @@ Built-in Sources (always available, zero setup)
 ### Using Third-Party Sources
 
 ```bash
-# Import a third-party Git repository
+# Option 1: Import repository for reuse (tracked, updatable)
 multicord repo import https://github.com/someone/cool-bot --as cool
-
-# Create a bot from it
 multicord bot create my-bot --from cool
 
-# Or import directly (untracked)
-multicord bot import https://github.com/someone/cool-bot
+# Option 2: Use Git URL directly (one-time copy)
+multicord bot create my-bot --from https://github.com/someone/cool-bot
+
+# Option 3: Use local directory (in-place reference)
+multicord bot create my-bot --from ./existing-bot
 ```
 
 ---

@@ -76,7 +76,7 @@
     },
     "requires_cogs": {
       "type": "array",
-      "description": "Flat list of required cogs with version constraints (v3.0 feature)",
+      "description": "Flat list of required cogs with version constraints",
       "items": {
         "oneOf": [
           {

@@ -47,7 +47,8 @@ class APIClient:
     TOKEN_EXPIRY_KEY = "token_expiry"
     
     def __init__(self, api_url: Optional[str] = None):
-        self.api_url = api_url or "http://localhost:8000"  # Default to local dev
+        from multicord.constants import DEFAULT_API_URL
+        self.api_url = api_url or DEFAULT_API_URL
 
         # Enforce HTTPS for non-localhost API URLs
         is_valid, error_msg = validate_api_url_https(self.api_url)

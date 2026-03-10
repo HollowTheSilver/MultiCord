@@ -1,5 +1,5 @@
 """
-Manifest parser for MultiCord v3.0 manifest system.
+Manifest parser for MultiCord manifest system.
 """
 
 import json
@@ -23,11 +23,11 @@ class ManifestValidationError(Exception):
 
 class ManifestParser:
     """
-    Parser for MultiCord v3.0 manifests.
+    Parser for MultiCord manifests.
 
     Parses the 3-layer manifest system:
     - Layer 1: multicord.json (repository-level)
-    - Layer 2: template.json/cog.json (item-level)
+    - Layer 2: bot.json/cog.json (item-level)
     - Layer 3: config.toml/.env (user runtime config - not parsed here)
 
     Example usage:
@@ -124,7 +124,7 @@ class ManifestParser:
         multicord_json = repo_path / "multicord.json"
         if not multicord_json.exists():
             raise FileNotFoundError(
-                f"No v3.0 manifest found in {repo_path}\n"
+                f"No manifest found in {repo_path}\n"
                 f"Expected: multicord.json at repository root"
             )
 
@@ -134,7 +134,7 @@ class ManifestParser:
         validate: bool = True
     ) -> Dict[str, Any]:
         """
-        Parse v3.0 repository manifest (multicord.json).
+        Parse repository manifest (multicord.json).
 
         Args:
             repo_path: Path to repository root
@@ -167,24 +167,25 @@ class ManifestParser:
         validate: bool = True
     ) -> Dict[str, Any]:
         """
-        Parse v3.0 template manifest (template.json).
+        Parse bot manifest (bot.json).
 
         Args:
-            template_path: Path to template directory
+            template_path: Path to bot source directory
             validate: Whether to validate against schema
 
         Returns:
             Parsed manifest data
 
         Raises:
-            FileNotFoundError: If template.json doesn't exist
+            FileNotFoundError: If bot.json doesn't exist
             ManifestValidationError: If validation fails
             json.JSONDecodeError: If file is invalid JSON
         """
-        manifest_path = template_path / "template.json"
+        from multicord.constants import BOT_MANIFEST
+        manifest_path = template_path / BOT_MANIFEST
 
         if not manifest_path.exists():
-            raise FileNotFoundError(f"Template manifest not found: {manifest_path}")
+            raise FileNotFoundError(f"Bot manifest not found: {manifest_path}")
 
         with open(manifest_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
@@ -200,7 +201,7 @@ class ManifestParser:
         validate: bool = True
     ) -> Dict[str, Any]:
         """
-        Parse v3.0 cog manifest (cog.json).
+        Parse cog manifest (cog.json).
 
         Args:
             cog_path: Path to cog directory
@@ -233,7 +234,7 @@ class ManifestParser:
         template_id: str
     ) -> Optional[Dict[str, Any]]:
         """
-        Get template information from v3.0 manifest.
+        Get template information from manifest.
 
         Args:
             repo_path: Path to repository root
@@ -257,7 +258,7 @@ class ManifestParser:
         cog_id: str
     ) -> Optional[Dict[str, Any]]:
         """
-        Get cog information from v3.0 manifest.
+        Get cog information from manifest.
 
         Args:
             repo_path: Path to repository root

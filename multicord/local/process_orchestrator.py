@@ -239,11 +239,12 @@ class ProcessRegistry:
 
 class PortManager:
     """Manages port allocation for bot processes."""
-    
-    def __init__(self, start_port: int = 8100, end_port: int = 8200):
+
+    def __init__(self, start_port: Optional[int] = None, end_port: Optional[int] = None):
         """Initialize port manager."""
-        self.start_port = start_port
-        self.end_port = end_port
+        from multicord.constants import BOT_PORT_START, BOT_PORT_END
+        self.start_port = start_port or BOT_PORT_START
+        self.end_port = end_port or BOT_PORT_END
         self.allocated_ports: Set[int] = set()
     
     def allocate_port(self) -> Optional[int]:
@@ -313,9 +314,13 @@ class ProcessOrchestrator:
         if not bot_path.exists():
             return False, f"Bot '{bot_name}' not found"
 
-        bot_file = bot_path / "bot.py"
-        if not bot_file.exists():
-            return False, f"Bot file not found: {bot_file}"
+        # Detect entry point (supports bot.py, main.py, run.py, __main__.py)
+        from multicord.utils.bot_detector import detect_entry_point
+        try:
+            entry_point = detect_entry_point(bot_path)
+            bot_file = bot_path / entry_point
+        except ValueError as e:
+            return False, str(e)
 
         # Validate bot's virtual environment exists
         is_valid, venv_msg = self.venv_manager.validate_venv(bot_path)

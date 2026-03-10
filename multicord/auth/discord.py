@@ -97,9 +97,10 @@ class DiscordAuth:
     REFRESH_TOKEN_KEY = "refresh_token"
     USER_INFO_KEY = "discord_user"
 
-    def __init__(self, api_url: str = "http://localhost:8000"):
-        self.api_url = api_url
-        self.callback_port = 8899  # Local port for callback server
+    def __init__(self, api_url: Optional[str] = None):
+        from multicord.constants import DEFAULT_API_URL, OAUTH_CALLBACK_PORT
+        self.api_url = api_url or DEFAULT_API_URL
+        self.callback_port = OAUTH_CALLBACK_PORT
         self.expected_state = None  # For CSRF protection
 
     def authenticate(self) -> bool:

@@ -22,13 +22,14 @@ class DeviceFlowClient:
     REFRESH_TOKEN_KEY = "refresh_token"
     USER_INFO_KEY = "discord_user"
 
-    def __init__(self, api_url: str = "http://localhost:8000"):
+    def __init__(self, api_url: Optional[str] = None):
         """Initialize device flow client.
 
         Args:
             api_url: Base URL for MultiCord API
         """
-        self.api_url = api_url
+        from multicord.constants import DEFAULT_API_URL
+        self.api_url = api_url or DEFAULT_API_URL
         self.device_endpoint = f"{api_url}/v1/auth/device"
         self.token_endpoint = f"{api_url}/v1/auth/device/token"
 
