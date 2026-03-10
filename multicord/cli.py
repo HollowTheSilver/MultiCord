@@ -3,41 +3,16 @@ Main CLI interface for MultiCord.
 Provides commands for local bot management and cloud integration.
 """
 
+import sys
 import click
 from rich.console import Console
-from rich.table import Table
-from pathlib import Path
-import sys
 
 from multicord.api.client import APIClient
-from multicord.local.bot_manager import BotManager
-from multicord.docker import DockerManager
-from multicord.utils.config import ConfigManager
 from multicord.utils.display import Display
-from multicord.utils.errors import handle_error, FriendlyError, NetworkError, AuthenticationError
-from multicord.utils.validation import validate_bot_name, validate_cog_name
 from multicord.commands import auth, bot, cache, config, repo, token, venv
 
 console = Console()
 display = Display()
-
-
-def validate_bot_name_callback(ctx, param, value):
-    """Click callback to validate bot name."""
-    if value:
-        is_valid, error_msg = validate_bot_name(value)
-        if not is_valid:
-            raise click.BadParameter(error_msg)
-    return value
-
-
-def validate_cog_name_callback(ctx, param, value):
-    """Click callback to validate cog name."""
-    if value:
-        is_valid, error_msg = validate_cog_name(value)
-        if not is_valid:
-            raise click.BadParameter(error_msg)
-    return value
 
 
 @click.group(invoke_without_command=True)

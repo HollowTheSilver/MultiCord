@@ -8,6 +8,26 @@ path traversal, command injection, and other security issues.
 import re
 from pathlib import Path
 from typing import Optional
+
+import click
+
+
+def validate_bot_name_callback(ctx, param, value):
+    """Click callback to validate bot name."""
+    if value:
+        is_valid, error_msg = validate_bot_name(value)
+        if not is_valid:
+            raise click.BadParameter(error_msg)
+    return value
+
+
+def validate_cog_name_callback(ctx, param, value):
+    """Click callback to validate cog name."""
+    if value:
+        is_valid, error_msg = validate_cog_name(value)
+        if not is_valid:
+            raise click.BadParameter(error_msg)
+    return value
 from urllib.parse import urlparse
 
 
