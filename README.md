@@ -350,15 +350,13 @@ Built-in Sources (always available, zero setup)
 
 ### Flexible Bot Structure
 
-MultiCord automatically detects Discord.py bots with non-standard entry points:
+MultiCord uses manifest-first entry point resolution, similar to how Node.js resolves `main` in `package.json`:
 
-**Supported entry points** (checked in order):
-1. `bot.py` (standard)
-2. `main.py` (common alternative)
-3. `run.py` (another common pattern)
-4. `__main__.py` (Python module pattern)
+1. **Declared entry point** in `bot.json` (`"entry_point": "app.py"`)
+2. **Convention-based scanning**: `bot.py`, `main.py`, `run.py`, `__main__.py`
+3. **Cached result** stored in `.multicord_meta.json` after first detection
 
-All entry points are validated for Discord.py bot code before acceptance.
+All candidates are validated for Discord.py bot code before acceptance. For most bots, the convention scanning just works. Custom entry points only need a one-line declaration in `bot.json`.
 
 ### Environment Configuration
 
