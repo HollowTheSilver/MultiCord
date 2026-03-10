@@ -126,6 +126,12 @@
       },
       "minItems": 1
     },
+    "entry_point": {
+      "type": "string",
+      "description": "Bot entry point filename (default: auto-detected from bot.py, main.py, run.py, __main__.py)",
+      "pattern": "^[a-zA-Z0-9_.-]+\\.py$",
+      "examples": ["bot.py", "main.py", "app.py"]
+    },
     "featured": {
       "type": "boolean",
       "description": "Whether this template is featured",

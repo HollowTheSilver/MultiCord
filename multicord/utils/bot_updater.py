@@ -156,8 +156,8 @@ class BotUpdater:
                 error_message=f"Failed to read metadata: {e}"
             )
 
-        source_name = metadata.get("source") or metadata.get("template")
-        current_version = metadata.get("source_version") or metadata.get("template_version", "unknown")
+        source_name = metadata.get("source")
+        current_version = metadata.get("source_version", "unknown")
 
         # Get source info via resolver
         try:

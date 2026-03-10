@@ -1,21 +1,32 @@
 """
 Bot structure detection and validation.
 
-Detects Discord.py bot entry points and validates bot structure
-to support non-standard bot layouts.
+Resolves Discord.py bot entry points using a manifest-first strategy:
+manifest/metadata declaration → convention-based scanning → error.
 """
 
+import json
 from pathlib import Path
 from typing import Optional, Tuple, List
-from multicord.constants import BOT_ENTRY_FILE
+from multicord.constants import BOT_ENTRY_FILE, META_FILE, BOT_MANIFEST
+
+# Standard entry point filenames in priority order
+ENTRY_POINT_CANDIDATES = [
+    BOT_ENTRY_FILE,  # bot.py (standard)
+    'main.py',       # Common alternative
+    'run.py',        # Another common pattern
+    '__main__.py',   # Python module pattern
+]
 
 
 def detect_entry_point(bot_path: Path) -> str:
     """
     Detect the bot's entry point file.
 
-    Tries standard entry point names in order of likelihood,
-    validates each candidate contains Discord bot code.
+    Resolution order (manifest-first, like package.json → main):
+    1. Stored metadata (.multicord_meta.json entry_point field)
+    2. Bot manifest (bot.json entry_point field)
+    3. Convention-based scanning of known filenames with Discord.py validation
 
     Args:
         bot_path: Path to bot directory
@@ -26,24 +37,40 @@ def detect_entry_point(bot_path: Path) -> str:
     Raises:
         ValueError: If no valid entry point found
     """
-    candidates = [
-        BOT_ENTRY_FILE,  # bot.py (standard)
-        'main.py',       # Common alternative
-        'run.py',        # Another common pattern
-        '__main__.py',   # Python module pattern
-    ]
+    # 1. Check stored metadata (already-detected entry point)
+    entry = _read_manifest_entry_point(bot_path / META_FILE)
+    if entry and (bot_path / entry).exists():
+        return entry
 
-    for candidate in candidates:
+    # 2. Check bot manifest declaration
+    entry = _read_manifest_entry_point(bot_path / BOT_MANIFEST)
+    if entry and (bot_path / entry).exists():
+        return entry
+
+    # 3. Convention-based fallback with Discord.py content validation
+    for candidate in ENTRY_POINT_CANDIDATES:
         entry_file = bot_path / candidate
         if entry_file.exists() and _is_valid_entry_point(entry_file):
             return candidate
 
-    # No valid entry point found
     raise ValueError(
         f"No recognized Discord bot entry point found in {bot_path}.\n"
-        f"Expected one of: {', '.join(candidates)}\n"
-        f"Each file should contain Discord.py bot initialization code."
+        f"Expected one of: {', '.join(ENTRY_POINT_CANDIDATES)}\n"
+        f"Each file should contain Discord.py bot initialization code.\n"
+        f"Tip: declare 'entry_point' in bot.json to use a custom filename."
     )
+
+
+def _read_manifest_entry_point(manifest_path: Path) -> Optional[str]:
+    """Read entry_point field from a JSON manifest file."""
+    if not manifest_path.exists():
+        return None
+    try:
+        with open(manifest_path, encoding='utf-8') as f:
+            data = json.load(f)
+        return data.get("entry_point")
+    except (json.JSONDecodeError, IOError, KeyError):
+        return None
 
 
 def _is_valid_entry_point(file_path: Path) -> bool:

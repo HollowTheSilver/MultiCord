@@ -99,8 +99,8 @@ class BackupManager:
                 try:
                     with open(meta_file, 'r', encoding='utf-8') as f:
                         meta = json.load(f)
-                        template = meta.get("source") or meta.get("template", "unknown")
-                        template_version = meta.get("source_version") or meta.get("template_version", "unknown")
+                        template = meta.get("source", "unknown")
+                        template_version = meta.get("source_version", "unknown")
                 except Exception:
                     pass
 

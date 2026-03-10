@@ -37,8 +37,6 @@ CACHE_TTL_SECONDS = 3600  # 1 hour
 COLLECTION_MANIFEST = 'multicord.json'
 BOT_MANIFEST = 'bot.json'
 COG_MANIFEST = 'cog.json'
-LEGACY_MANIFEST = 'manifest.json'
-
 # Port configuration (with environment variable support)
 DEFAULT_API_URL = os.getenv('MULTICORD_API_URL', 'http://localhost:8000')
 OAUTH_CALLBACK_PORT = int(os.getenv('MULTICORD_OAUTH_PORT', '8899'))
