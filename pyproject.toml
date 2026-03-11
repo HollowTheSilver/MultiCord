@@ -56,24 +56,18 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://multicord.io"
-Documentation = "https://docs.multicord.io"
 Repository = "https://github.com/HollowTheSilver/MultiCord"
 Issues = "https://github.com/HollowTheSilver/MultiCord/issues"
-Changelog = "https://github.com/HollowTheSilver/MultiCord/blob/main/CHANGELOG.md"
 
 [project.scripts]
 multicord = "multicord.cli:cli"
 
-[tool.setuptools]
-packages = ["multicord"]
-include-package-data = true
+[tool.setuptools.packages.find]
+where = ["."]
 
 [tool.setuptools.package-data]
 multicord = [
-    "templates/**/*",
-    "templates/**/.*",
-    "py.typed",
+    "manifests/schemas/*.json",
 ]
 
 [tool.black]
