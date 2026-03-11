@@ -3,6 +3,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 
+> **Note**: MultiCord is currently in active development and has not yet been officially released. Installation is source-only until the package is published on PyPI.
+
 A command-line tool for managing multiple Discord bots with process isolation, dependency management, and deployment capabilities.
 
 ---
@@ -75,6 +77,8 @@ multicord bot status  # Real-time monitoring with health metrics
   - Multi-node deployment to cloud infrastructure
   - Bidirectional configuration sync with conflict resolution
   - Offline caching with transparent API fallback
+
+  > **Cloud features require the MultiCord API backend, which is not yet publicly available. Local bot management works fully offline.**
 
 ---
 
@@ -157,7 +161,7 @@ Complete bot lifecycle management with health monitoring.
 
 #### Monitoring
 - `multicord bot list` - List all bots with status
-  - **Flags**: `--local`, `--cloud`, `--sync` (merged view), `--status <running|stopped>`
+  - **Flags**: `--local`, `--cloud`\*, `--sync`\* (merged view), `--status <running|stopped>`
 
 - `multicord bot status <name>` - Detailed status with health metrics
 
@@ -165,16 +169,21 @@ Complete bot lifecycle management with health monitoring.
   - **Flags**: `--watch` (auto-refresh)
 
 - `multicord bot logs <name>` - View bot logs
-  - **Flags**: `--follow`, `--lines <n>`, `--cloud`
+  - **Flags**: `--follow`, `--lines <n>`, `--cloud`\*
 
 #### Token & Config
 - `multicord bot set-token <name>` - Set bot token inline
 - `multicord bot migrate-tokens` - Migrate tokens from .env to secure storage
 
 #### Cloud Operations
+
+> **Requires the MultiCord API backend, which is not yet publicly available.**
+
 - `multicord bot deploy <name>` - Deploy bot to cloud
 - `multicord bot pull <name>` - Pull cloud config to local
 - `multicord bot sync <name>` - Bidirectional sync
+
+*\*Flags marked with an asterisk require the API backend.*
 
 #### Source Updates
 - `multicord bot check-updates [name]` - Check for source updates
@@ -250,6 +259,8 @@ multicord bot create my-bot --from cool
 
 ### Authentication (`multicord auth`) - 3 commands
 
+> **Requires the MultiCord API backend, which is not yet publicly available.**
+
 - `multicord auth login` - Login with Discord OAuth2 (auto-detects browser/device flow)
 - `multicord auth logout` - Logout and clear stored tokens
 - `multicord auth status` - Check authentication status with Discord user info
@@ -280,7 +291,7 @@ multicord bot create my-bot --from cool
 
 - `multicord cache status` - Show cache statistics
 - `multicord cache clear` - Clear all cached data
-- `multicord cache refresh` - Refresh cache from API
+- `multicord cache refresh` - Refresh cache from API *(requires API backend)*
 
 ---
 
@@ -350,15 +361,13 @@ Built-in Sources (always available, zero setup)
 
 ### Flexible Bot Structure
 
-MultiCord automatically detects Discord.py bots with non-standard entry points:
+MultiCord uses manifest-first entry point resolution, similar to how Node.js resolves `main` in `package.json`:
 
-**Supported entry points** (checked in order):
-1. `bot.py` (standard)
-2. `main.py` (common alternative)
-3. `run.py` (another common pattern)
-4. `__main__.py` (Python module pattern)
+1. **Declared entry point** in `bot.json` (`"entry_point": "app.py"`)
+2. **Convention-based scanning**: `bot.py`, `main.py`, `run.py`, `__main__.py`
+3. **Cached result** stored in `.multicord_meta.json` after first detection
 
-All entry points are validated for Discord.py bot code before acceptance.
+All candidates are validated for Discord.py bot code before acceptance. For most bots, the convention scanning just works. Custom entry points only need a one-line declaration in `bot.json`.
 
 ### Environment Configuration
 
@@ -442,6 +451,8 @@ multicord bot rollback my-bot
 
 ## Authentication
 
+> **Requires the MultiCord API backend, which is not yet publicly available. Authentication is only needed for cloud features.**
+
 MultiCord uses Discord as the sole authentication provider with smart environment detection:
 
 - **Desktop**: Opens Discord authorization in your browser
@@ -459,7 +470,7 @@ multicord auth status    # Shows Discord user info
 
 - **Token Storage**: OS keyring or AES-encrypted file fallback
 - **Process Isolation**: Each bot runs in its own process with dedicated venv
-- **API Communication**: HTTPS with JWT tokens and refresh rotation
+- **API Communication**: HTTPS with JWT tokens and refresh rotation *(when API backend is available)*
 - **Docker Isolation**: Optional container-per-bot for full isolation
 
 ---

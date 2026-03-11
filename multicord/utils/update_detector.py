@@ -81,8 +81,8 @@ class UpdateDetector:
         except Exception:
             return UpdateInfo(available=False)
 
-        source_name = metadata.get('source') or metadata.get('template')
-        current_version = metadata.get('source_version') or metadata.get('template_version', 'unknown')
+        source_name = metadata.get('source')
+        current_version = metadata.get('source_version', 'unknown')
 
         if not source_name or current_version == 'unknown':
             return UpdateInfo(available=False)

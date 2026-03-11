@@ -45,7 +45,7 @@
     "author": {
       "type": "string",
       "description": "Template author name or organization",
-      "examples": ["MultiCord Team", "username"]
+      "examples": ["HollowTheSilver", "username"]
     },
     "category": {
       "type": "string",
@@ -125,6 +125,12 @@
         "examples": ["bot.py", "config.toml", "requirements.txt", ".env.example"]
       },
       "minItems": 1
+    },
+    "entry_point": {
+      "type": "string",
+      "description": "Bot entry point filename (default: auto-detected from bot.py, main.py, run.py, __main__.py)",
+      "pattern": "^[a-zA-Z0-9_.-]+\\.py$",
+      "examples": ["bot.py", "main.py", "app.py"]
     },
     "featured": {
       "type": "boolean",
@@ -259,7 +265,7 @@
       "name": "Moderation Bot",
       "description": "Minimal scaffolding bot that loads moderation features from moderation-tools cog",
       "version": "3.0.0",
-      "author": "MultiCord Team",
+      "author": "HollowTheSilver",
       "category": "moderation",
       "tags": ["moderation", "admin", "server-management", "cog-based"],
       "discord_py_version": ">=2.0.0",

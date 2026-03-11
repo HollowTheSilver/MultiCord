@@ -45,7 +45,7 @@
     "author": {
       "type": "string",
       "description": "Cog author name or organization",
-      "examples": ["MultiCord Team", "username"]
+      "examples": ["HollowTheSilver", "username"]
     },
     "category": {
       "type": "string",
@@ -267,7 +267,7 @@
       "name": "Moderation Tools",
       "description": "Comprehensive moderation toolkit with kick, ban, mute, warn, and auto-moderation features",
       "version": "1.0.0",
-      "author": "MultiCord Team",
+      "author": "HollowTheSilver",
       "category": "moderation",
       "tags": ["moderation", "admin", "kick", "ban", "mute", "warn", "auto-mod"],
       "discord_py_version": ">=2.0.0",

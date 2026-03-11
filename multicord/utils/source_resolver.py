@@ -21,7 +21,6 @@ from multicord.constants import (
     CACHE_TTL_SECONDS,
     BOT_MANIFEST,
     COG_MANIFEST,
-    LEGACY_MANIFEST,
 )
 from multicord.utils.display import Display
 from multicord.utils.validation import validate_git_url
@@ -42,6 +41,9 @@ def discover_bot_structure(source_path: Path, source_name: str = "unknown") -> T
     2. Required files (config.toml, requirements.txt)
     3. Metadata file (bot.json)
 
+    Uses bot_detector's shared candidate list and validation to avoid
+    duplicating detection logic.
+
     Args:
         source_path: Root of the source repository
         source_name: Name of the source (for error messages)
@@ -52,9 +54,7 @@ def discover_bot_structure(source_path: Path, source_name: str = "unknown") -> T
     Raises:
         ValueError: If no valid bot entry point is found
     """
-    # 1. FIND BOT ENTRY POINT
-    # Search for valid entry point files in order of preference
-    entry_point_candidates = ['bot.py', 'main.py', 'run.py', '__main__.py']
+    from multicord.utils.bot_detector import ENTRY_POINT_CANDIDATES, _is_valid_entry_point
 
     # Search locations: root first, then nested directories
     search_locations = [
@@ -71,19 +71,12 @@ def discover_bot_structure(source_path: Path, source_name: str = "unknown") -> T
         if not location.exists():
             continue
 
-        for entry_candidate in entry_point_candidates:
+        for entry_candidate in ENTRY_POINT_CANDIDATES:
             entry_file = location / entry_candidate
-            if entry_file.exists():
-                # Verify it looks like a Discord.py bot (basic check)
-                try:
-                    content = entry_file.read_text(encoding='utf-8', errors='ignore')
-                    # Check for Discord.py imports or bot instantiation
-                    if 'discord' in content.lower() or 'commands.Bot' in content or 'commands.bot' in content:
-                        bot_files_path = location
-                        entry_point_name = entry_candidate
-                        break
-                except (IOError, UnicodeDecodeError):
-                    continue
+            if entry_file.exists() and _is_valid_entry_point(entry_file):
+                bot_files_path = location
+                entry_point_name = entry_candidate
+                break
 
         if bot_files_path:
             break
@@ -92,9 +85,10 @@ def discover_bot_structure(source_path: Path, source_name: str = "unknown") -> T
         searched = ', '.join(str(loc) for loc in search_locations if loc.exists())
         raise ValueError(
             f"No valid Discord bot entry point found in source '{source_name}'\n"
-            f"Expected one of: {', '.join(entry_point_candidates)}\n"
+            f"Expected one of: {', '.join(ENTRY_POINT_CANDIDATES)}\n"
             f"Searched in: {searched or 'no valid locations'}\n"
-            f"Entry point must contain Discord.py imports"
+            f"Entry point must contain Discord.py imports.\n"
+            f"Tip: declare 'entry_point' in bot.json to use a custom filename."
         )
 
     # 2. FIND METADATA FILE
@@ -102,8 +96,6 @@ def discover_bot_structure(source_path: Path, source_name: str = "unknown") -> T
     metadata_candidates = [
         bot_files_path / BOT_MANIFEST,    # Prefer: with bot files
         source_path / BOT_MANIFEST,        # Fallback: repository root
-        bot_files_path / LEGACY_MANIFEST,  # Legacy: with bot files
-        source_path / LEGACY_MANIFEST,     # Legacy: repository root
     ]
 
     metadata_path = None
@@ -122,7 +114,7 @@ def discover_cog_structure(source_path: Path, cog_name: str) -> Tuple[Path, Opti
 
     Handles any reasonable directory structure by searching for:
     1. Python package with Discord.py setup() function
-    2. Metadata file (cog.json or manifest.json)
+    2. Metadata file (cog.json)
 
     Args:
         source_path: Root of the cog repository
@@ -166,8 +158,6 @@ def discover_cog_structure(source_path: Path, cog_name: str) -> Tuple[Path, Opti
     metadata_candidates = [
         package_path / COG_MANIFEST,      # Prefer: inside the package directory
         source_path / COG_MANIFEST,       # Fallback: repository root
-        package_path / LEGACY_MANIFEST,   # Legacy: inside package
-        source_path / LEGACY_MANIFEST,    # Legacy: repository root
     ]
 
     metadata_path = None
@@ -624,7 +614,6 @@ class SourceResolver:
         exclude_files = {
             '.multicord_cache.json',  # Source repo Git cache
             'bot.json',               # Bot manifest (metadata only)
-            'template.json',          # Old manifest name (backward compatibility)
             'cog.json',               # Cog manifest (metadata only)
             'multicord.json',         # Collection manifest (metadata only)
             'CONTRIBUTING.md',        # Repository contribution guide

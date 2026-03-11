@@ -74,7 +74,7 @@ class BotManager:
                         try:
                             with open(meta_file, encoding='utf-8') as f:
                                 meta = json.load(f)
-                                source = meta.get("source") or meta.get("template", "unknown")
+                                source = meta.get("source", "unknown")
                         except:
                             pass
 
@@ -158,12 +158,20 @@ class BotManager:
                 except (json.JSONDecodeError, IOError):
                     pass
 
+            # Detect and store entry point for downstream consumers
+            from multicord.utils.bot_detector import detect_entry_point
+            try:
+                detected_entry = detect_entry_point(bot_path)
+            except ValueError:
+                detected_entry = entry_point  # fall back to discovery result
+
             # Create metadata file with version tracking
             from multicord import __version__
             meta_file = bot_path / ".multicord_meta.json"
             meta_data = {
                 "source": source_name,
                 "source_version": source_version,
+                "entry_point": detected_entry,
                 "created_at": datetime.now().isoformat(),
                 "multicord_version": __version__
             }
@@ -340,7 +348,7 @@ class BotManager:
             try:
                 with open(meta_file, encoding='utf-8') as f:
                     meta = json.load(f)
-                    source = meta.get("source") or meta.get("template", "custom")
+                    source = meta.get("source", "custom")
             except:
                 pass
 

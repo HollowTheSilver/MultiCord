@@ -63,6 +63,7 @@ class DockerManager:
 
         Analyzes bot's requirements.txt to detect Python version and
         generates a multi-stage Dockerfile with best practices.
+        Uses detect_entry_point() to resolve the correct bot file.
 
         Args:
             bot_path: Path to bot directory
@@ -82,6 +83,10 @@ class DockerManager:
 
         # Detect Python version from requirements or use default
         python_version = self._detect_python_version(bot_path)
+
+        # Detect bot entry point (manifest-first, then convention)
+        from multicord.utils.bot_detector import detect_entry_point
+        entry_point = detect_entry_point(bot_path)
 
         # Read requirements
         with open(requirements_file, 'r', encoding='utf-8') as f:
@@ -135,10 +140,10 @@ ENV PYTHONUNBUFFERED=1
 
 # Health check (ping bot process)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \\
-  CMD ps aux | grep -q "[p]ython.*bot.py" || exit 1
+  CMD ps aux | grep -q "[p]ython.*{entry_point}" || exit 1
 
 # Run bot
-CMD ["python", "bot.py"]
+CMD ["python", "{entry_point}"]
 '''
 
         logger.info(f"Generated Dockerfile for {bot_path.name} (Python {python_version})")
