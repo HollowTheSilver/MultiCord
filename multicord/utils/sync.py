@@ -7,7 +7,7 @@ import json
 import hashlib
 from pathlib import Path
 from typing import Dict, Any, Optional, List, Tuple
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
 
@@ -247,7 +247,7 @@ class ConfigSync:
             "config": config,
             "metadata": {
                 "bot_name": bot_name,
-                "exported_at": datetime.utcnow().isoformat(),
+                "exported_at": datetime.now(timezone.utc).isoformat(),
                 "config_hash": self.get_config_hash(config),
                 "source": "local"
             }
@@ -293,9 +293,9 @@ class ConfigSync:
         """Update sync metadata for a bot."""
         meta_file = self.sync_meta_dir / f"{bot_name}_sync.json"
         meta = {
-            "timestamp": datetime.utcnow().timestamp(),
+            "timestamp": datetime.now(timezone.utc).timestamp(),
             "config_hash": self.get_config_hash(config),
-            "last_sync": datetime.utcnow().isoformat()
+            "last_sync": datetime.now(timezone.utc).isoformat()
         }
 
         try:
