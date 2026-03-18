@@ -70,9 +70,6 @@ site/
 Thumbs.db
 desktop.ini
 
-# Windows bug - undeletable nul files created on interrupt
-nul
-
 # Logs
 *.log
 logs/
@@ -118,16 +115,3 @@ bots/
 .env
 .env.*
 
-# Development documentation (not for commits)
-CLAUDE.md
-PROJECT_STRUCTURE.md
-TODO.md
-TESTING.md
-.claude/
-AWS_DEPLOYMENT.md
-AWS_DEPLOYMENT_HYBRID.md
-DEPLOYMENT_GUIDE.md
-CRITICAL_REFACTOR.md
-
-# Claude Code temporary files
-tmpclaude-*

@@ -7,7 +7,7 @@ import shutil
 import toml
 from pathlib import Path
 from typing import Dict, List, Optional, Any
-from datetime import datetime
+from datetime import datetime, timezone
 
 from .process_orchestrator import ProcessOrchestrator, ProcessStatus
 from .health_monitor import HealthMonitor
@@ -358,7 +358,7 @@ class BotManager:
             "template": source,
             "config": config,
             "metadata": {
-                "exported_at": datetime.utcnow().isoformat(),
+                "exported_at": datetime.now(timezone.utc).isoformat(),
                 "source": "local",
                 "path": str(bot_path)
             }
